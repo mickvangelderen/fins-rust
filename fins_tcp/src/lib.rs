@@ -1,6 +1,6 @@
 use std::convert::{TryInto};
 use tokio::net::{TcpStream, ToSocketAddrs};
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, BufStream};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufStream};
 use fins_util::*;
 
 // #[derive(Debug)]
@@ -32,8 +32,8 @@ use fins_util::*;
 // type Result<T> = std::result::Result<T, Error>;
 pub struct Connection {
     stream: BufStream<TcpStream>,
-    client_node: u8,
-    server_node: u8,
+    pub client_node: u8,
+    pub server_node: u8,
 }
 
 impl Connection {
@@ -56,6 +56,15 @@ impl Connection {
         })
     }
 
+    pub async fn write_frame(&mut self, frame: Frame) -> std::io::Result<()> {
+        frame.serialize(&mut self.stream).await?;
+        self.stream.flush().await
+    }
+
+    pub async fn read_frame(&mut self) -> std::io::Result<Frame> {
+        Frame::deserialize(&mut self.stream).await
+    }
+
     pub fn stream(&self) -> &TcpStream {
         self.stream.get_ref()
     }
@@ -76,7 +85,7 @@ impl ConnectRequest {
     fn raw(&self) -> RawConnectRequest {
         RawConnectRequest {
             fins: FINS,
-            length: (std::mem::size_of::<RawConnectRequest>() as u32 - 8).into(),
+            length: 12.into(),
             command: 0.into(),
             error_code: 0.into(),
             client_node: (self.client_node as u32).into()
@@ -130,6 +139,51 @@ pub struct RawConnectResponse {
 }
 
 unsafe_impl_raw!(RawConnectResponse);
+
+#[derive(Debug)]
+pub struct Frame {
+    pub body: Vec<u8>
+}
+
+impl Frame {
+    pub async fn serialize<W: AsyncWrite + Unpin>(&self, writer: &mut W) -> std::io::Result<()> {
+        self.header().write(writer).await?;
+        writer.write_all(&self.body).await?;
+        Ok(())
+    }
+
+    pub async fn deserialize<R: AsyncRead + Unpin>(reader: &mut R) -> std::io::Result<Self> {
+        let header = RawFrameHeader::read(reader).await?;
+        assert_eq!(FINS, header.fins);
+        let length = (header.length.to_ne() - 8) as usize;
+        assert_eq!(u32be::from_ne(2), header.command);
+        assert_eq!(u32be::from_ne(0), header.error_code);
+        let mut body = Vec::with_capacity(length);
+        body.resize(length, 0);
+        reader.read_exact(&mut body).await?;
+        Ok(Frame { body })
+    }
+
+    fn header(&self) -> RawFrameHeader {
+        RawFrameHeader {
+            fins: FINS,
+            length: (8 + self.body.len() as u32).into(),
+            command: 2.into(),
+            error_code: 0.into(),
+        }
+    }
+}
+
+#[derive(Debug)]
+#[repr(C)]
+struct RawFrameHeader {
+    fins: [u8; 4],
+    length: u32be,
+    command: u32be,
+    error_code: u32be,
+}
+
+unsafe_impl_raw!(RawFrameHeader);
 
 #[cfg(test)]
 mod tests {
