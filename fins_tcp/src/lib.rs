@@ -1,6 +1,6 @@
 use std::convert::{TryInto};
 use tokio::net::{TcpStream, ToSocketAddrs};
-use tokio::io::BufStream;
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, BufStream};
 use fins_util::*;
 
 // #[derive(Debug)]
@@ -45,7 +45,7 @@ impl Connection {
         let mut stream = BufStream::new(stream);
 
         ConnectRequest { client_node: 0 }.serialize(&mut stream).await?;
-        tokio::io::AsyncWriteExt::flush(&mut stream).await?;
+        stream.flush().await?;
 
         let ConnectResponse { client_node, server_node } = ConnectResponse::deserialize(&mut stream).await?;
 
@@ -69,9 +69,8 @@ pub struct ConnectRequest {
 const FINS: [u8; 4] = *b"FINS";
 
 impl ConnectRequest {
-    pub async fn serialize<W: tokio::io::AsyncWrite + Unpin>(&self, writer: &mut W) -> std::io::Result<()> {
-        tokio::io::AsyncWriteExt::write_all(writer, self.raw().as_bytes()).await?;
-        Ok(())
+    pub async fn serialize<W: AsyncWrite + Unpin>(&self, writer: &mut W) -> std::io::Result<()> {
+        self.raw().write(writer).await
     }
 
     fn raw(&self) -> RawConnectRequest {
@@ -85,7 +84,6 @@ impl ConnectRequest {
     }
 }
 
-#[derive(Default, Debug)]
 #[repr(C)]
 struct RawConnectRequest {
     fins: [u8; 4],
@@ -95,7 +93,7 @@ struct RawConnectRequest {
     client_node: u32be,
 }
 
-impl_as_bytes!(RawConnectRequest);
+unsafe_impl_raw!(RawConnectRequest);
 
 #[derive(Debug)]
 pub struct ConnectResponse {
@@ -104,22 +102,24 @@ pub struct ConnectResponse {
 }
 
 impl ConnectResponse {
-    pub async fn deserialize<R: tokio::io::AsyncRead + Unpin>(reader: &mut R) -> std::io::Result<Self> {
-        let response = RawConnectResponse::read(reader).await?;
+    pub async fn deserialize<R: AsyncRead + Unpin>(reader: &mut R) -> std::io::Result<Self> {
+        RawConnectResponse::read(reader).await.map(Self::from_raw)
+    }
 
+    fn from_raw(response: RawConnectResponse) -> Self {
         assert_eq!(FINS, response.fins);
         assert_eq!(u32be::from_ne(16), response.length);
         assert_eq!(u32be::from_ne(1), response.command);
         assert_eq!(u32be::from_ne(0), response.error_code);
 
-        Ok(ConnectResponse {
+        ConnectResponse {
             client_node: u32::from(response.client_node).try_into().unwrap(),
             server_node: u32::from(response.server_node).try_into().unwrap(),
-        })
+        }
     }
 }
 
-#[derive(Debug, Default)]
+#[repr(C)]
 pub struct RawConnectResponse {
     fins: [u8; 4],
     length: u32be,
