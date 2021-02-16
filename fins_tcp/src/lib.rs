@@ -147,3 +147,44 @@ async fn read_fins<R: tokio::io::AsyncRead + Unpin>(reader: &mut R) -> std::io::
 async fn read_u32be<R: tokio::io::AsyncRead + Unpin>(reader: &mut R) -> std::io::Result<u32> {
     read_4(reader).await.map(u32::from_be_bytes)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn connect_request_serializes() {
+        let mut output = [0u8; 20];
+
+        ConnectRequest { client_node: 3 }.serialize(
+            &mut std::io::Cursor::new(&mut output[..])
+        ).await.unwrap();
+
+        assert_eq!(output, [
+            0x46, 0x49, 0x4E, 0x53,
+            0x00, 0x00, 0x00, 0x0C,
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x03,
+        ]);
+    }
+
+    #[tokio::test]
+    async fn connect_response_deserializes() {
+        let input = [
+            0x46, 0x49, 0x4E, 0x53,
+            0x00, 0x00, 0x00, 0x10,
+            0x00, 0x00, 0x00, 0x01,
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x03,
+            0x00, 0x00, 0x00, 0x04,
+        ];
+
+        let ConnectResponse { client_node, server_node } = ConnectResponse::deserialize(
+            &mut std::io::Cursor::new(&input[..])
+        ).await.unwrap();
+
+        assert_eq!(client_node, 3);
+        assert_eq!(server_node, 4);
+    }
+}
