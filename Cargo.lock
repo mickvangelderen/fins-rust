@@ -55,14 +55,37 @@ dependencies = [
 ]
 
 [[package]]
-name = "fins-rust"
+name = "fins"
 version = "0.1.0"
 dependencies = [
- "bytes",
+ "fins_util",
+ "tracing",
+]
+
+[[package]]
+name = "fins_client"
+version = "0.1.0"
+dependencies = [
+ "fins_tcp",
  "tokio",
  "tracing",
  "tracing-subscriber",
 ]
+
+[[package]]
+name = "fins_tcp"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "fins",
+ "fins_util",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "fins_util"
+version = "0.1.0"
 
 [[package]]
 name = "hermit-abi"

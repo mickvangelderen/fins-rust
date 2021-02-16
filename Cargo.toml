@@ -1,13 +1,8 @@
-[package]
-name = "fins-rust"
-version = "0.1.0"
-authors = ["Mick van Gelderen <mickvangelderen@gmail.com>"]
-edition = "2018"
+[workspace]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-bytes = "1.0.1"
-tokio = { version = "1.2.0", features = [ "full" ] }
-tracing = "0.1.23"
-tracing-subscriber = "0.2.15"
+members = [
+    "fins",
+    "fins_client",
+    "fins_tcp",
+    "fins_util",
+]
