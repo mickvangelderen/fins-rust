@@ -1,7 +1,7 @@
-use fins_util::unsafe_impl_raw;
+use fins_util::*;
 
 #[derive(Debug)]
-#[repr(C, align(1))]
+#[repr(C)]
 pub struct RawHeader {
     /// Information Control Field
     pub icf: u8,
@@ -36,3 +36,7 @@ pub struct RawHeader {
 }
 
 unsafe_impl_raw!(RawHeader);
+
+pub struct Frame {
+
+}

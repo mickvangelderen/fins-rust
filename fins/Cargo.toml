@@ -9,3 +9,4 @@ edition = "2018"
 [dependencies]
 tracing = "0.1.23"
 fins_util = { path = "../fins_util" }
+tokio = { version = "1.2.0", features = [ "full" ] }

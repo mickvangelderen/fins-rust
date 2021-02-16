@@ -59,6 +59,7 @@ name = "fins"
 version = "0.1.0"
 dependencies = [
  "fins_util",
+ "tokio",
  "tracing",
 ]
 
@@ -76,7 +77,6 @@ dependencies = [
 name = "fins_tcp"
 version = "0.1.0"
 dependencies = [
- "bytes",
  "fins",
  "fins_util",
  "tokio",

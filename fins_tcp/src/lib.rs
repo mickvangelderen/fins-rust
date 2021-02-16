@@ -98,12 +98,6 @@ struct RawConnectRequest {
 impl_as_bytes!(RawConnectRequest);
 
 #[derive(Debug)]
-pub enum Frame {
-    ConnectRequest(ConnectRequest),
-    ConnectResponse(ConnectResponse),
-}
-
-#[derive(Debug)]
 pub struct ConnectResponse {
     client_node: u8,
     server_node: u8,
@@ -111,42 +105,31 @@ pub struct ConnectResponse {
 
 impl ConnectResponse {
     pub async fn deserialize<R: tokio::io::AsyncRead + Unpin>(reader: &mut R) -> std::io::Result<Self> {
-        read_fins(reader).await?;
+        let response = RawConnectResponse::read(reader).await?;
 
-        let length = read_u32be(reader).await?;
-        assert_eq!(16, length);
-
-        let command = read_u32be(reader).await?;
-        assert_eq!(1, command);
-
-        let error_code = read_u32be(reader).await?;
-        assert_eq!(0, error_code);
-
-        let client_node = read_u32be(reader).await?;
-        let server_node = read_u32be(reader).await?;
+        assert_eq!(FINS, response.fins);
+        assert_eq!(u32be::from_ne(16), response.length);
+        assert_eq!(u32be::from_ne(1), response.command);
+        assert_eq!(u32be::from_ne(0), response.error_code);
 
         Ok(ConnectResponse {
-            client_node: client_node.try_into().unwrap(),
-            server_node: server_node.try_into().unwrap(),
+            client_node: u32::from(response.client_node).try_into().unwrap(),
+            server_node: u32::from(response.server_node).try_into().unwrap(),
         })
     }
 }
 
-async fn read_4<R: tokio::io::AsyncRead + Unpin>(reader: &mut R) -> std::io::Result<[u8; 4]> {
-    let mut bytes = [0; 4];
-    tokio::io::AsyncReadExt::read_exact(reader, &mut bytes).await?;
-    Ok(bytes)
+#[derive(Debug, Default)]
+pub struct RawConnectResponse {
+    fins: [u8; 4],
+    length: u32be,
+    command: u32be,
+    error_code: u32be,
+    client_node: u32be,
+    server_node: u32be,
 }
 
-async fn read_fins<R: tokio::io::AsyncRead + Unpin>(reader: &mut R) -> std::io::Result<()> {
-    let bytes = read_4(reader).await?;
-    assert_eq!(*b"FINS", bytes);
-    Ok(())
-}
-
-async fn read_u32be<R: tokio::io::AsyncRead + Unpin>(reader: &mut R) -> std::io::Result<u32> {
-    read_4(reader).await.map(u32::from_be_bytes)
-}
+unsafe_impl_raw!(RawConnectResponse);
 
 #[cfg(test)]
 mod tests {
