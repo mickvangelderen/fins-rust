@@ -15,7 +15,7 @@ macro_rules! unsafe_impl_raw {
     ($T:ty) => {
         impl $T {
             #[inline]
-            async fn read<R: ::tokio::io::AsyncRead + ::std::marker::Unpin>(reader: &mut R) -> ::std::io::Result<Self> {
+            async fn read_from<R: ::tokio::io::AsyncRead + ::std::marker::Unpin>(reader: &mut R) -> ::std::io::Result<Self> {
                 unsafe {
                     // FIXME(mickvangelderen): I'm aware this is unsound but I refuse to initialize to zero.
                     // I will gamble on the fact that most reader implementations will write to all bytes
@@ -27,7 +27,7 @@ macro_rules! unsafe_impl_raw {
             }
 
             #[inline]
-            async fn write<W: ::tokio::io::AsyncWrite + ::std::marker::Unpin>(&self, writer: &mut W) -> ::std::io::Result<()> {
+            async fn write_to<W: ::tokio::io::AsyncWrite + ::std::marker::Unpin>(&self, writer: &mut W) -> ::std::io::Result<()> {
                 ::tokio::io::AsyncWriteExt::write_all(writer, self.bytes()).await?;
                 Ok(())
             }

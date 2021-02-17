@@ -14,26 +14,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("connection established with {}", conn.stream().peer_addr()?);
 
     conn.write_frame(fins_tcp::Frame {
-        body: vec![
-            0x80, // icf
-            0,
-            0x02,
-            0x00, // dna
-            conn.server_node,
-            0x00,
-            0x00, // sna
-            conn.client_node,
-            0x00,
-            0x00, // sid
-            0x01, // mrc
-            0x01, // src
-            0x82,
-            0x00,
-            0x64,
-            0x00,
-            0x00,
-            0x96,
-        ]
+        body: {
+            let mut bytes = vec![0u8; 12];
+            fins::RequestFrame {
+                client_node: conn.client_node,
+                server_node: conn.server_node,
+                service_id: 0,
+                mrc: 1,
+                src: 1,
+                body: vec![
+                    0x82,
+                    0x00,
+                    0x64,
+                    0x00,
+                    0x00,
+                    0x96,
+                ],
+            }.write_to(&mut std::io::Cursor::new(&mut bytes)).await.unwrap();
+            bytes
+        }
     }).await?;
 
     let response = conn.read_frame().await?;

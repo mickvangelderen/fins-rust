@@ -8,6 +8,7 @@ edition = "2018"
 
 [dependencies]
 fins_tcp = { path = "../fins_tcp" }
+fins = { path = "../fins" }
 tokio = { version = "1.2.0", features = [ "full" ] }
 tracing = "0.1.23"
 tracing-subscriber = "0.2.15"

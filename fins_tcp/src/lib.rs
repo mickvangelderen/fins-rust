@@ -57,12 +57,12 @@ impl Connection {
     }
 
     pub async fn write_frame(&mut self, frame: Frame) -> std::io::Result<()> {
-        frame.serialize(&mut self.stream).await?;
+        frame.write_to(&mut self.stream).await?;
         self.stream.flush().await
     }
 
     pub async fn read_frame(&mut self) -> std::io::Result<Frame> {
-        Frame::deserialize(&mut self.stream).await
+        Frame::read_from(&mut self.stream).await
     }
 
     pub fn stream(&self) -> &TcpStream {
@@ -79,7 +79,7 @@ const FINS: [u8; 4] = *b"FINS";
 
 impl ConnectRequest {
     pub async fn serialize<W: AsyncWrite + Unpin>(&self, writer: &mut W) -> std::io::Result<()> {
-        self.raw().write(writer).await
+        self.raw().write_to(writer).await
     }
 
     fn raw(&self) -> RawConnectRequest {
@@ -112,7 +112,7 @@ pub struct ConnectResponse {
 
 impl ConnectResponse {
     pub async fn deserialize<R: AsyncRead + Unpin>(reader: &mut R) -> std::io::Result<Self> {
-        RawConnectResponse::read(reader).await.map(Self::from_raw)
+        RawConnectResponse::read_from(reader).await.map(Self::from_raw)
     }
 
     fn from_raw(response: RawConnectResponse) -> Self {
@@ -146,14 +146,14 @@ pub struct Frame {
 }
 
 impl Frame {
-    pub async fn serialize<W: AsyncWrite + Unpin>(&self, writer: &mut W) -> std::io::Result<()> {
-        self.header().write(writer).await?;
+    pub async fn write_to<W: AsyncWrite + Unpin>(&self, writer: &mut W) -> std::io::Result<()> {
+        self.header().write_to(writer).await?;
         writer.write_all(&self.body).await?;
         Ok(())
     }
 
-    pub async fn deserialize<R: AsyncRead + Unpin>(reader: &mut R) -> std::io::Result<Self> {
-        let header = RawFrameHeader::read(reader).await?;
+    pub async fn read_from<R: AsyncRead + Unpin>(reader: &mut R) -> std::io::Result<Self> {
+        let header = RawFrameHeader::read_from(reader).await?;
         assert_eq!(FINS, header.fins);
         let length = (header.length.to_ne() - 8) as usize;
         assert_eq!(u32be::from_ne(2), header.command);

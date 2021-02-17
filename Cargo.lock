@@ -67,6 +67,7 @@ dependencies = [
 name = "fins_client"
 version = "0.1.0"
 dependencies = [
+ "fins",
  "fins_tcp",
  "tokio",
  "tracing",
