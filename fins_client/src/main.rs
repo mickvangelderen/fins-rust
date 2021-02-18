@@ -1,5 +1,12 @@
+use fins::{MemoryAddress, RequestFrame};
 use tracing::info;
 use std::net::SocketAddr;
+
+
+struct MemoryRead {
+    address: MemoryAddress,
+    count: u16,
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -9,33 +16,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("attempting to connect to {}", peer_addr);
 
-    let mut conn = fins_tcp::Connection::connect(peer_addr).await?;
+    let mut conn = fins_tcp::FinsTcpStream::connect(peer_addr).await?;
 
     info!("connection established with {}", conn.stream().peer_addr()?);
 
-    conn.write_frame(fins_tcp::Frame {
-        body: {
-            let mut bytes = vec![0u8; 12];
-            fins::RequestFrame {
-                client_node: conn.client_node,
-                server_node: conn.server_node,
-                service_id: 0,
-                mrc: 1,
-                src: 1,
-                body: vec![
-                    0x82,
-                    0x00,
-                    0x64,
-                    0x00,
-                    0x00,
-                    0x96,
-                ],
-            }.write_to(&mut std::io::Cursor::new(&mut bytes)).await.unwrap();
-            bytes
-        }
-    }).await?;
+    conn.write_frame(fins::Frame::Request(fins::RequestFrame {
+        client_node: conn.client_node,
+        server_node: conn.server_node,
+        service_id: 0,
+        mrc: 1,
+        src: 1,
+        body: vec![
+            0x82, // memory area code
+            0x00, // memory address
+            0x0A,
+            0x00,
+            0x00,
+            0x96,
+        ],
+    })).await?;
 
-    let response = conn.read_frame().await?;
+    let response = match conn.read_frame().await? {
+        fins::Frame::Request(request) => panic!("Unexpected request"),
+        fins::Frame::Response(response) => response
+    };
 
     print_bytes(&response.body);
 

@@ -1,4 +1,8 @@
-use fins_util::*;
+use crate::*;
+
+const fn test_bits_u8(v: u8, b: u8) -> bool {
+    v & b == b
+}
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum InformationControlField {
@@ -9,84 +13,76 @@ pub enum InformationControlField {
 }
 
 impl InformationControlField {
-    fn is_request(&self) -> bool {
+    pub const fn is_request(&self) -> bool {
         matches!(
             self,
             Self::RequestWithResponse | Self::RequestWithoutResponse
         )
     }
 
-    fn requires_response(&self) -> bool {
+    pub const fn requires_response(&self) -> bool {
         matches!(self, Self::RequestWithResponse | Self::ResponseWithResponse)
     }
-}
 
-fn test_bits_u8(v: u8, b: u8) -> bool {
-    v & b == b
-}
-
-impl From<RawInformationControlField> for InformationControlField {
-    fn from(raw: RawInformationControlField) -> Self {
-        let bits = raw.0;
-        debug_assert_eq!(0b10000000, bits & 0b10111110);
-        let requires_response = !test_bits_u8(bits, 1 << 0);
-        let is_command = !test_bits_u8(bits, 1 << 6);
-        match (is_command, requires_response) {
-            (true, true) => Self::RequestWithResponse,
-            (true, false) => Self::RequestWithoutResponse,
-            (false, true) => Self::ResponseWithResponse,
-            (false, false) => Self::ResponseWithoutResponse,
-        }
-    }
-}
-
-impl From<InformationControlField> for RawInformationControlField {
-    fn from(val: InformationControlField) -> Self {
+    pub const fn serialize(&self) -> RawInformationControlField {
         let mut bits = 0b10000000;
-        if !val.requires_response() {
+        if !self.requires_response() {
             bits |= 1 << 0;
         }
-        if !val.is_request() {
+        if !self.is_request() {
             bits |= 1 << 6;
         }
-        Self(bits)
+        RawInformationControlField(bits)
     }
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-#[repr(C)]
+#[derive(Default, Debug, Copy, Clone, Eq, PartialEq)]
+#[repr(C, packed)]
 pub struct RawInformationControlField(u8);
+
+impl RawInformationControlField {
+    pub const fn deserialize(self) -> Result<InformationControlField> {
+        let bits = self.0;
+        if bits & 0b10111110 != 0b10000000 { return Err(Error::InvalidInformationControlField(self)) }
+        let requires_response = !test_bits_u8(bits, 1 << 0);
+        let is_command = !test_bits_u8(bits, 1 << 6);
+        Ok(match (is_command, requires_response) {
+            (true, true) => InformationControlField::RequestWithResponse,
+            (true, false) => InformationControlField::RequestWithoutResponse,
+            (false, true) => InformationControlField::ResponseWithResponse,
+            (false, false) => InformationControlField::ResponseWithoutResponse,
+        })
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    macro_rules! test_bidir {
+        ($unraw:expr, $raw:expr $(,)?) => {
+            assert_eq!($unraw.serialize(), $raw);
+            assert_eq!(Ok($unraw), $raw.deserialize());
+        }
+    }
+
     #[test]
     fn information_control_field_works() {
-        test_bidir_from(
+        test_bidir!(
             InformationControlField::RequestWithResponse,
             RawInformationControlField(0b10000000),
         );
-        test_bidir_from(
+        test_bidir!(
             InformationControlField::RequestWithoutResponse,
             RawInformationControlField(0b10000001),
         );
-        test_bidir_from(
+        test_bidir!(
             InformationControlField::ResponseWithResponse,
             RawInformationControlField(0b11000000),
         );
-        test_bidir_from(
+        test_bidir!(
             InformationControlField::ResponseWithoutResponse,
             RawInformationControlField(0b11000001),
         );
-    }
-
-    fn test_bidir_from<A, B>(a: A, b: B)
-    where
-        A: PartialEq<A> + From<B> + Copy + std::fmt::Debug,
-        B: PartialEq<B> + From<A> + Copy + std::fmt::Debug,
-    {
-        assert_eq!(a, A::from(b));
-        assert_eq!(b, B::from(a));
     }
 }
