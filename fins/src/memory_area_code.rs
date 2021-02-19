@@ -1,6 +1,6 @@
 use crate::*;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 #[repr(transparent)]
 pub struct RawMemoryAreaCode(pub u8);
 
@@ -17,7 +17,7 @@ impl RawMemoryAreaCode {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum MemoryAreaCode {
     D,
 }

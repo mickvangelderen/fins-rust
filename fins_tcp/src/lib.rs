@@ -380,13 +380,13 @@ pub enum FinsFrame {
 
 impl FinsFrame {
     pub async fn read_from<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Self> {
-        let fins::Header {
-            icf,
-            gct,
-            destination,
-            source,
-            sid,
-        } = read_raw!(reader, fins::RawHeader).deserialize()?;
+        // let fins::Header {
+        //     icf,
+        //     gct,
+        //     destination,
+        //     source,
+        //     sid,
+        // } = read_raw!(reader, fins::RawHeader).deserialize()?;
 
         unimplemented!()
 

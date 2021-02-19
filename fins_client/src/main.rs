@@ -50,7 +50,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 pub async fn read_print(conn: &mut fins_tcp::FinsTcpStream, offset: u16, count: u16) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-    let mem_addr = MemoryAddress::new(MemoryAreaCode::D, offset, 0);
+    let mem_addr = MemoryAddress { area_code: MemoryAreaCode::D, offset, bits: 0 };
     let bytes = conn.read(mem_addr, count).await?;
     print_bytes(mem_addr, &bytes);
     Ok(bytes)
@@ -60,11 +60,11 @@ pub fn print_bytes(mem_addr: MemoryAddress, bytes: &[u8]) {
     for index in (0..bytes.len()).step_by(2) {
         println!(
             "{0:>6}: 0x{1:02X} 0x{2:02X} | 0b{1:08b} 0b{2:08b} | {1:3} {2:3} | {3} {4} | {5} ",
-            format!("{:?}", MemoryAddress::new(
-                mem_addr.area_code(),
-                mem_addr.offset() + index as u16,
-                0
-            )),
+            format!("{:?}", MemoryAddress {
+                area_code: mem_addr.area_code,
+                offset: mem_addr.offset + index as u16,
+                bits: 0
+            }),
             bytes[index],
             bytes[index + 1],
             if bytes[index].is_ascii_graphic() {

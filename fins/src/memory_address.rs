@@ -1,53 +1,44 @@
 use crate::*;
 
-#[derive(Default)]
-#[repr(transparent)]
-pub struct RawMemoryAddress(u32be);
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq)]
+#[repr(C, packed)]
+pub struct RawMemoryAddress {
+    area_code: RawMemoryAreaCode,
+    offset: u16be,
+    bits: u8,
+}
 
 impl RawMemoryAddress {
     pub const fn deserialize(self) -> Result<MemoryAddress> {
-        let val = self.0.to_u32();
-        trye!(RawMemoryAreaCode((val >> 24) as u8).deserialize());
-        Ok(MemoryAddress(val))
+        let RawMemoryAddress { area_code, offset, bits } = self;
+        Ok(MemoryAddress {area_code: trye!(area_code.deserialize()), offset: offset.to_u16(), bits })
     }
 }
 
 #[derive(Copy, Clone, Eq, PartialEq)]
-#[repr(transparent)]
-pub struct MemoryAddress(u32);
+pub struct MemoryAddress {
+    pub area_code: MemoryAreaCode,
+    pub offset: u16,
+    pub bits: u8,
+}
 
 impl MemoryAddress {
-    pub const fn new(area_code: MemoryAreaCode, offset: u16, bits: u8) -> Self {
-        Self(
-            bits as u32
-            | (offset as u32) << 8
-            | (area_code.serialize().0 as u32) << 24
-        )
-    }
-
-    pub fn area_code(&self) -> MemoryAreaCode {
-        // Unwrap should never fail because we perform this check in `deserialize>>>`.
-        RawMemoryAreaCode((self.0 >> 24) as u8)
-            .deserialize()
-            .unwrap()
-    }
-
-    pub const fn offset(&self) -> u16 {
-        (self.0 >> 8) as u16
-    }
-
-    pub const fn bits (&self) -> u8 {
-        self.0 as u8
-    }
-
     pub const fn serialize(&self) -> RawMemoryAddress {
-        RawMemoryAddress(u32be::from_u32(self.0))
+        RawMemoryAddress {
+            area_code: self.area_code.serialize(),
+            offset: u16be::from_u16(self.offset),
+            bits: self.bits,
+        }
     }
 }
 
 impl std::fmt::Debug for MemoryAddress {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{:?}{}", self.area_code(), self.offset())
+        if self.bits == 0 {
+            write!(f, "{:?}{}", self.area_code, self.offset)
+        } else {
+            write!(f, "{:?}{}.{}", self.area_code, self.offset, self.bits)
+        }
     }
 }
 
@@ -57,6 +48,14 @@ mod tests {
 
     #[test]
     fn serialize_works() {
-        assert_eq!(MemoryAddress::new(MemoryAreaCode::D, 100, 0).serialize().0, u32be::from_bytes([0x80, 0x64, 0x00, 0x00]))
+        assert_eq!(
+            MemoryAddress { area_code: MemoryAreaCode::D, offset: 100, bits: 0 }.serialize(),
+            RawMemoryAddress { area_code: RawMemoryAreaCode::D, offset: u16be::from_u16(100), bits: 0 }
+        );
+    }
+
+    #[test]
+    fn layout_is_nice() {
+        assert_eq!(std::mem::size_of::<MemoryAddress>(), 4);
     }
 }
