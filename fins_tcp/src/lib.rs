@@ -1,24 +1,39 @@
-use std::convert::TryInto;
-use tokio::net::{TcpStream, ToSocketAddrs};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufStream};
+use fins::InformationControlField;
 use fins_util::*;
+use std::convert::TryInto;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufStream};
+use tokio::net::{TcpStream, ToSocketAddrs};
 
 #[derive(Debug)]
 pub enum Error {
     Invalid,
     UnknownCommand(RawCommandCode),
-    UnexpectedFrame(Box<Frame>),
-    ErrorCode { command: CommandCode, error_code: u32 },
-    Io(std::io::Error)
+    ErrorCode {
+        command: CommandCode,
+        error_code: u32,
+    },
+    Fins(fins::Error),
+    Io(std::io::Error),
 }
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             Self::Invalid => "Received invalid FINS/TCP frame.".fmt(f),
-            Self::UnknownCommand(command) => write!(f, "Received FINS/TCP frame with unknown command {:?}.", command),
-            Self::UnexpectedFrame(frame) => write!(f, "Received unexpected FINS/TCP frame {:?}.", frame),
-            &Self::ErrorCode { command, error_code } => write!(f, "Received FINS/TCP error frame with command {:?} and error code {}.", command, error_code),
+            Self::UnknownCommand(command) => write!(
+                f,
+                "Received FINS/TCP frame with unknown command {:?}.",
+                command
+            ),
+            &Self::ErrorCode {
+                command,
+                error_code,
+            } => write!(
+                f,
+                "Received FINS/TCP error frame with command {:?} and error code {}.",
+                command, error_code
+            ),
+            Self::Fins(e) => e.fmt(f),
             Self::Io(e) => e.fmt(f),
         }
     }
@@ -30,8 +45,14 @@ impl From<std::io::Error> for Error {
     fn from(error: std::io::Error) -> Self {
         match error {
             e if e.kind() == std::io::ErrorKind::UnexpectedEof => Self::Invalid,
-            e => Self::Io(e)
+            e => Self::Io(e),
         }
+    }
+}
+
+impl From<fins::Error> for Error {
+    fn from(error: fins::Error) -> Self {
+        Self::Fins(error)
     }
 }
 
@@ -51,13 +72,15 @@ impl FinsTcpStream {
 
         let mut stream = BufStream::new(stream);
 
-        ClientAddressFrame { client_node : 0 }.write_to(&mut stream).await?;
+        ClientAddressFrame { client_node: 0 }
+            .write_to(&mut stream)
+            .await?;
         stream.flush().await?;
 
-        let ServerAddressFrame { client_node, server_node } = match Frame::read_from(&mut stream).await? {
-            Frame::ServerAddress(frame) => frame,
-            other => return Err(Error::UnexpectedFrame(Box::new(other))),
-        };
+        let ServerAddressFrame {
+            client_node,
+            server_node,
+        } = ServerAddressFrame::read_from(&mut stream).await?;
 
         Ok(Self {
             stream,
@@ -66,21 +89,113 @@ impl FinsTcpStream {
         })
     }
 
-    pub async fn write_frame(&mut self, frame: fins::Frame) -> Result<()> {
-        write_raw!(&mut self.stream, Header {
-            length: 8 + frame.byte_len(),
-            command: CommandCode::Fins,
-            error_code: 0,
-        }.to_raw());
-        frame.write_to(&mut self.stream).await?;
-        self.stream.flush().await?;
-        Ok(())
-    }
+    pub async fn read(&mut self, address: fins::MemoryAddress, count: u16) -> Result<Vec<u8>> {
+        {
+            #[derive(Default)]
+            #[repr(C, packed)]
+            struct RawRequest {
+                fins_tcp_header: RawHeader,
+                fins_header: fins::RawHeader,
+                fins_request: fins::RawRequestHeader,
+                address: fins::RawMemoryAddress,
+                count: u16be,
+            }
+            unsafe_impl_raw!(RawRequest);
 
-    pub async fn read_frame(&mut self) -> Result<fins::Frame> {
-        match Frame::read_from(&mut self.stream).await? {
-            Frame::Fins(frame) => Ok(frame),
-            other => Err(Error::UnexpectedFrame(Box::new(other))),
+            let request = RawRequest {
+                fins_tcp_header: Header {
+                    command: CommandCode::Fins,
+                    length: std::mem::size_of::<RawRequest>() as u32 - 8,
+                    error_code: 0,
+                }
+                .to_raw(),
+                fins_header: fins::Header {
+                    icf: fins::InformationControlField::RequestWithResponse,
+                    gct: 0x02,
+                    destination: fins::MachineAddress {
+                        network: 0,
+                        node: self.server_node,
+                        unit: 0,
+                    },
+                    source: fins::MachineAddress {
+                        network: 0,
+                        node: self.client_node,
+                        unit: 0,
+                    },
+                    sid: 0,
+                }
+                .serialize(),
+                fins_request: fins::RawRequestHeader {
+                    mrc: 0x01,
+                    src: 0x01,
+                },
+                address: address.serialize(),
+                count: u16be::from_u16(count),
+            };
+
+            write_raw!(&mut self.stream, request);
+            self.stream.flush().await?;
+        }
+
+        {
+            let Header {
+                length,
+                command,
+                error_code,
+            } = Header::from_raw(read_raw!(&mut self.stream, RawHeader))?;
+
+            assert_eq!(command, CommandCode::Fins);
+            assert_eq!(0, error_code);
+
+            let fins::Header {
+                icf,
+                gct: _,
+                destination,
+                source,
+                sid,
+            } = read_raw!(&mut self.stream, fins::RawHeader).deserialize()?;
+
+            assert_eq!(icf, InformationControlField::ResponseWithResponse);
+            assert_eq!(
+                destination,
+                fins::MachineAddress {
+                    network: 0,
+                    node: self.client_node,
+                    unit: 0
+                }
+            );
+            assert_eq!(
+                source,
+                fins::MachineAddress {
+                    network: 0,
+                    node: self.server_node,
+                    unit: 0
+                }
+            );
+            assert_eq!(sid, 0); // whatever?
+
+            let fins::RawResponseHeader {
+                mrc,
+                src,
+                mres,
+                sres,
+            } = read_raw!(&mut self.stream, fins::RawResponseHeader);
+
+            assert_eq!(mrc, 1);
+            assert_eq!(src, 1);
+            assert_eq!(mres, 0);
+            assert_eq!(sres, 0);
+
+            let byte_count = length
+                - (std::mem::size_of::<RawHeader>() as u32 - 8)
+                - std::mem::size_of::<fins::RawHeader>() as u32
+                - std::mem::size_of::<fins::RawResponseHeader>() as u32;
+
+            let mut bytes = Vec::with_capacity(byte_count as usize);
+            bytes.resize(byte_count as usize, 0);
+            self.stream.read_exact(&mut bytes[..]).await?;
+
+            Ok(bytes)
         }
     }
 
@@ -91,7 +206,7 @@ impl FinsTcpStream {
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct ClientAddressFrame {
-    pub client_node: u8
+    pub client_node: u8,
 }
 
 const FINS: [u8; 4] = *b"FINS";
@@ -110,7 +225,7 @@ impl RawCommandCode {
 pub enum CommandCode {
     ClientAddress,
     ServerAddress,
-    Fins
+    Fins,
 }
 
 impl CommandCode {
@@ -143,22 +258,29 @@ impl ClientAddressFrame {
 
     pub async fn read_from<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Self> {
         let header = Header::from_raw(read_raw!(reader, RawHeader))?;
-        if header.length != CLIENT_ADDRESS_LENGTH { return Err(Error::Invalid) }
-        if header.command != CommandCode::ClientAddress { return Err(Error::Invalid) }
-        if header.error_code != 0 { return Err(Error::Invalid) }
+        if header.length != CLIENT_ADDRESS_LENGTH {
+            return Err(Error::Invalid);
+        }
+        if header.command != CommandCode::ClientAddress {
+            return Err(Error::Invalid);
+        }
+        if header.error_code != 0 {
+            return Err(Error::Invalid);
+        }
         let body = read_raw!(reader, RawClientAddressBody);
         Ok(Self::from_raw_body(body))
     }
-    
+
     fn to_raw(&self) -> RawClientAddressFrame {
         RawClientAddressFrame {
             header: Header {
                 length: CLIENT_ADDRESS_LENGTH,
                 command: CommandCode::ClientAddress,
-                error_code: 0
-            }.to_raw(),
+                error_code: 0,
+            }
+            .to_raw(),
             body: RawClientAddressBody {
-                client_node: u32be::from(self.client_node as u32)
+                client_node: u32be::from(self.client_node as u32),
             },
         }
     }
@@ -169,7 +291,6 @@ impl ClientAddressFrame {
         }
     }
 }
-
 
 #[derive(Default)]
 #[repr(C, packed)]
@@ -196,10 +317,23 @@ pub struct ServerAddressFrame {
 
 impl ServerAddressFrame {
     pub async fn read_from<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Self> {
-        let Header { length, command, error_code } = Header::from_raw(read_raw!(reader, RawHeader))?;
-        if length != SERVER_ADDRESS_LENGTH { return Err(Error::Invalid) }
-        if command != CommandCode::ServerAddress { return Err(Error::Invalid) }
-        if error_code != 0 { return Err(Error::ErrorCode { command, error_code }) }
+        let Header {
+            length,
+            command,
+            error_code,
+        } = Header::from_raw(read_raw!(reader, RawHeader))?;
+        if length != SERVER_ADDRESS_LENGTH {
+            return Err(Error::Invalid);
+        }
+        if command != CommandCode::ServerAddress {
+            return Err(Error::Invalid);
+        }
+        if error_code != 0 {
+            return Err(Error::ErrorCode {
+                command,
+                error_code,
+            });
+        }
         let body = read_raw!(reader, RawServerAddressBody);
         Ok(Self::from_raw_body(body))
     }
@@ -221,7 +355,6 @@ pub struct RawServerAddressFrame {
 
 unsafe_impl_raw!(RawServerAddressFrame);
 
-
 #[derive(Default)]
 #[repr(C, packed)]
 struct RawServerAddressBody {
@@ -232,50 +365,86 @@ struct RawServerAddressBody {
 unsafe_impl_raw!(RawServerAddressBody);
 
 #[derive(Debug)]
-pub enum Frame {
-    ClientAddress(ClientAddressFrame),
-    ServerAddress(ServerAddressFrame),
-    Fins(fins::Frame),
+pub struct FinsRequestFrame {}
+
+#[derive(Debug)]
+pub enum FinsResponseFrame {
+    Read(Vec<u8>),
 }
 
-impl Frame {
-    // async fn write_to<W: AsyncWrite + Unpin>(&self, writer: &mut W) -> Result<()> {
-    //     match self {
-    //         Frame::ClientAddress(frame) => frame.write_to(writer).await?,
-    //         Frame::ServerAddress(frame) => frame.write_to(writer).await?,
-    //         Frame::Fins(frame) => {
-    //             RawHeader {
-    //                 fins: FINS,
-    //                 length: (8 + frame.byte_len()).into(),
-    //                 command: 2.into(),
-    //                 error_code: 0.into(),
-    //             }.write_to(writer).await?;
-    //             frame.write_to(writer).await?;
-    //         }
-    //     }
-    //     Ok(())
-    // }
+#[derive(Debug)]
+pub enum FinsFrame {
+    Request(FinsRequestFrame),
+    Response(FinsResponseFrame),
+}
 
+impl FinsFrame {
     pub async fn read_from<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Self> {
-        let Header { length, command, error_code } = Header::from_raw(read_raw!(reader, RawHeader))?;
+        let fins::Header {
+            icf,
+            gct,
+            destination,
+            source,
+            sid,
+        } = read_raw!(reader, fins::RawHeader).deserialize()?;
+
+        unimplemented!()
+
+        // if icf.is_request() {
+        //     let fins::RawRequestHeader { mrc, src } = read_raw!(reader, fins::RawRequestHeader);
+        //     unimplemented!()
+        // } else {
+        //     let fins::RawResponseHeader { mrc, src, mres, sres } = read_raw!(reader, fins::RawResponseHeader);
+        //     assert_eq!(mrc, 1);
+        //     assert_eq!(src, 1);
+        //     assert_eq!(mres, 0);
+        //     assert_eq!(sres, 0);
+        //     Ok(FinsFrame::Response(
+        //         FinsResponseFrame::Read()
+        //     ))
+        // }
+    }
+}
+
+#[derive(Debug)]
+pub enum FinsTcpFrame {
+    ClientAddress(ClientAddressFrame),
+    ServerAddress(ServerAddressFrame),
+    Fins(FinsFrame),
+}
+
+impl FinsTcpFrame {
+    pub async fn read_from<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Self> {
+        let Header {
+            length,
+            command,
+            error_code,
+        } = Header::from_raw(read_raw!(reader, RawHeader))?;
 
         // FIXME: Figure out what is sent on error. We don't want to break the stream by not reading the entire frame!
         if error_code != 0 {
-            return Err(Error::ErrorCode { command, error_code })
+            return Err(Error::ErrorCode {
+                command,
+                error_code,
+            });
         }
 
         Ok(match command {
             CommandCode::ClientAddress => {
-                if length != CLIENT_ADDRESS_LENGTH { return Err(Error::Invalid) };
+                if length != CLIENT_ADDRESS_LENGTH {
+                    return Err(Error::Invalid);
+                };
                 let body = read_raw!(reader, RawClientAddressBody);
-                Frame::ClientAddress(ClientAddressFrame::from_raw_body(body))
+                FinsTcpFrame::ClientAddress(ClientAddressFrame::from_raw_body(body))
             }
             CommandCode::ServerAddress => {
-                if length != SERVER_ADDRESS_LENGTH { return Err(Error::Invalid) };
+                if length != SERVER_ADDRESS_LENGTH {
+                    return Err(Error::Invalid);
+                };
                 let body = read_raw!(reader, RawServerAddressBody);
-                Frame::ServerAddress(ServerAddressFrame::from_raw_body(body))
+                FinsTcpFrame::ServerAddress(ServerAddressFrame::from_raw_body(body))
             }
-            CommandCode::Fins => unimplemented!()
+            CommandCode::Fins => unimplemented!(),
         })
     }
 }
@@ -298,7 +467,9 @@ impl Header {
     }
 
     fn from_raw(val: RawHeader) -> Result<Self> {
-        if val.fins != FINS { return Err(Error::Invalid); }
+        if val.fins != FINS {
+            return Err(Error::Invalid);
+        }
         Ok(Self {
             length: val.length.to_u32(),
             command: CommandCode::from_raw(val.command)?,
@@ -328,35 +499,39 @@ mod tests {
 
         let output = {
             let mut bytes = [0u8; std::mem::size_of::<RawClientAddressFrame>()];
-            input.write_to(&mut std::io::Cursor::new(&mut bytes[..])).await.unwrap();
+            input
+                .write_to(&mut std::io::Cursor::new(&mut bytes[..]))
+                .await
+                .unwrap();
             bytes
         };
 
-        assert_eq!(output, [
-            0x46, 0x49, 0x4E, 0x53,
-            0x00, 0x00, 0x00, 0x0C,
-            0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x03,
-        ]);
+        assert_eq!(
+            output,
+            [
+                0x46, 0x49, 0x4E, 0x53, 0x00, 0x00, 0x00, 0x0C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x03,
+            ]
+        );
     }
 
     #[tokio::test]
     async fn connect_response_deserializes() {
         let input = [
-            0x46, 0x49, 0x4E, 0x53,
-            0x00, 0x00, 0x00, 0x10,
-            0x00, 0x00, 0x00, 0x01,
-            0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x03,
-            0x00, 0x00, 0x00, 0x04,
+            0x46, 0x49, 0x4E, 0x53, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x04,
         ];
 
-        let output = ServerAddressFrame::read_from(&mut std::io::Cursor::new(&input[..])).await.unwrap();
+        let output = ServerAddressFrame::read_from(&mut std::io::Cursor::new(&input[..]))
+            .await
+            .unwrap();
 
-        assert_eq!(output, ServerAddressFrame {
-            client_node: 3,
-            server_node: 4
-        });
+        assert_eq!(
+            output,
+            ServerAddressFrame {
+                client_node: 3,
+                server_node: 4
+            }
+        );
     }
 }

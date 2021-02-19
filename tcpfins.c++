@@ -217,14 +217,7 @@ int tcp_recv(sockfd, buf, len) int sockfd;
 unsigned char *buf;
 int len;
 {
-  STOP RESPONSE MONITOR TIMER * / ILLEGAL RESPONSE LENGTH CHECK * /
-          DESTINATION ADDRESS CHECK * /
-          STOP RESPONSE MONITOR TIMER CLOSE SOCKET RECEIVE PROCESSING(
-              RECEIVE REPEATED UP TO THE SPECIFIED NUMBER OF BYTES)
-
-              FINS /
-          TCP Method Section 7 -
-      4 int total_len = 0;
+  int total_len = 0;
   int recv_len;
 
   for (;;) {

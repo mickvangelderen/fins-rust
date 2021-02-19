@@ -27,13 +27,13 @@ unsafe_impl_raw!(RawHeader);
 
 impl RawHeader {
     pub const fn deserialize(self) -> Result<Header> {
-        Header {
-            icf: self.icf.deserialize()?,
+        Ok(Header {
+            icf: trye!(self.icf.deserialize()),
             gct: self.gct,
-            destination: MachineAddress::from_raw(self.destination),
-            source: MachineAddress::from_raw(self.source),
+            destination: self.destination.deserialize(),
+            source: self.source.deserialize(),
             sid: self.sid,
-        }
+        })
     }
 }
 
@@ -56,13 +56,12 @@ impl Header {
             icf: self.icf.serialize(),
             rsv: 0x00,
             gct: self.gct,
-            destination: self.destination.to_raw(),
-            source: self.source.to_raw(),
+            destination: self.destination.serialize(),
+            source: self.source.serialize(),
             sid: self.sid,
-         }
+        }
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -70,25 +69,25 @@ mod tests {
 
     #[test]
     fn header_to_bytes_works() {
-        let output = Header {
+        let input = Header {
             icf: InformationControlField::RequestWithResponse,
             gct: 0x02,
-            destination: MachineAddress { network: 0x03, node: 0x04, unit: 0x05 },
-            source: MachineAddress { network: 0x06, node: 0x07, unit: 0x08 },
+            destination: MachineAddress {
+                network: 0x03,
+                node: 0x04,
+                unit: 0x05,
+            },
+            source: MachineAddress {
+                network: 0x06,
+                node: 0x07,
+                unit: 0x08,
+            },
             sid: 0x09,
-        }.to_raw().bytes();
+        };
 
-        assert_eq!(output, &[
-            0x80,
-            0x00,
-            0x02,
-            0x06,
-            0x07,
-            0x08,
-            0x03,
-            0x04,
-            0x05,
-            0x09,
-        ]);
+        assert_eq!(
+            input.serialize().bytes(),
+            &[0x80, 0x00, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09,]
+        );
     }
 }

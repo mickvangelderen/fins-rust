@@ -8,23 +8,24 @@ unsafe_impl_raw!(RawMemoryAreaCode);
 
 impl RawMemoryAreaCode {
     pub const D: Self = Self(0x82);
+
+    pub const fn deserialize(self) -> Result<MemoryAreaCode> {
+        match self {
+            RawMemoryAreaCode::D => Ok(MemoryAreaCode::D),
+            unknown => Err(Error::InvalidMemoryAddressCode(unknown)),
+        }
+    }
 }
 
+#[derive(Debug)]
 pub enum MemoryAreaCode {
-    D
+    D,
 }
 
 impl MemoryAreaCode {
-    pub const fn to_raw(&self) -> RawMemoryAreaCode {
+    pub const fn serialize(&self) -> RawMemoryAreaCode {
         match self {
-            MemoryAreaCode::D => RawMemoryAreaCode::D
-        }
-    }
-
-    pub const fn from_raw(val: RawMemoryAreaCode) -> std::result::Result<Self, RawMemoryAreaCode> {
-        match val {
-            RawMemoryAreaCode::D => Ok(Self::D),
-            unknown => Err(unknown)
+            MemoryAreaCode::D => RawMemoryAreaCode::D,
         }
     }
 }

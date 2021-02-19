@@ -1,24 +1,36 @@
-mod information_control_field;
-mod memory_area_code;
-mod memory_address;
-mod machine_address;
-mod header;
-mod error;
+#![macro_use]
 
-pub use information_control_field::*;
-pub use memory_area_code::*;
-pub use memory_address::*;
-pub use machine_address::*;
-pub use header::*;
+mod error;
+mod header;
+mod information_control_field;
+mod machine_address;
+mod memory_address;
+mod memory_area_code;
+
 pub use error::*;
+pub use header::*;
+pub use information_control_field::*;
+pub use machine_address::*;
+pub use memory_address::*;
+pub use memory_area_code::*;
 
 use fins_util::*;
 
 type Result<T> = std::result::Result<T, Error>;
 
+#[macro_export]
+macro_rules! trye {
+    ($e:expr) => {
+        match $e {
+            Ok(val) => val,
+            Err(err) => return Err(err),
+        }
+    };
+}
+
 #[derive(Debug, Default)]
 #[repr(C, packed)]
-struct RawRequestHeader {
+pub struct RawRequestHeader {
     /// Main Request Code
     pub mrc: u8,
 
@@ -30,7 +42,7 @@ unsafe_impl_raw!(RawRequestHeader);
 
 #[derive(Debug, Default)]
 #[repr(C, packed)]
-struct RawResponseHeader {
+pub struct RawResponseHeader {
     /// Main Request Code
     pub mrc: u8,
 

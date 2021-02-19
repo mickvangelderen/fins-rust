@@ -63,24 +63,24 @@ impl_ints!(i64be, i64le, i64, [u8; 8], to_i64, from_i64);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::mem::{size_of, align_of};
-    
+    use std::mem::{align_of, size_of};
+
     macro_rules! offset_of {
-        ($Struct:path, $field:ident) => ({
+        ($Struct:path, $field:ident) => {{
             unsafe {
                 let u = ::std::mem::MaybeUninit::<$Struct>::uninit();
-                
+
                 // Use pattern-matching to avoid accidentally going through Deref.
                 let &$Struct { $field: ref f, .. } = &*u.as_ptr();
-                
+
                 let o = (f as *const _ as usize).wrapping_sub(&u as *const _ as usize);
-                
+
                 // Triple check that we are within `u` still.
                 debug_assert!((0..=::std::mem::size_of_val(&u)).contains(&o));
 
                 o
             }
-        })
+        }};
     }
 
     #[test]
@@ -117,7 +117,13 @@ mod tests {
 
     #[test]
     fn conversions_make_sense() {
-        assert_eq!(i32be::from(0x11223344).to_bytes(), 0x11223344i32.to_be_bytes());
-        assert_eq!(i32le::from(0x11223344).to_bytes(), 0x11223344i32.to_le_bytes());
+        assert_eq!(
+            i32be::from(0x11223344).to_bytes(),
+            0x11223344i32.to_be_bytes()
+        );
+        assert_eq!(
+            i32le::from(0x11223344).to_bytes(),
+            0x11223344i32.to_le_bytes()
+        );
     }
 }

@@ -1,17 +1,35 @@
-use fins::{MemoryAddress, RequestFrame};
-use tracing::info;
+use fins::{MemoryAddress, MemoryAreaCode};
 use std::net::SocketAddr;
-
-
-struct MemoryRead {
-    address: MemoryAddress,
-    count: u16,
-}
+use tracing::info;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
-    
+
+    tokio::select! {
+        _ = run() => {}
+        _ = tokio::signal::ctrl_c() => {}
+    }
+
+    Ok(())
+}
+
+/*
+[14:43:55 INF] New CommandHub started, BrowserGuid: null
+HoldToRun.Instruction.Assign.SequenceNumber (D1508): 7466
+HoldToRun.Instruction.Assign.Instruction (D1501): 0
+HoldToRun.Instruction.Assign.Watchdog (D1500): 0
+HoldToRun.Instruction.Assign.ManualMode (D1503): 1
+HoldToRun.Instruction.Assign.MachineMode (D1502): 1
+HoldToRun.Instruction.Status.SequenceNumber (D1600): 7466
+Alarms.Status.Alarm_SlowCommunication (D2420.00): False
+Alarms.Status.Alarm_NoCommunication (D2420.01): True
+LightGroup2.Status.LED_100_02 (D2420.02): False
+LightGroup2.Status.LED_100_06 (D2420.03): False
+LightGroup2.Status.LED_100_07 (D2420.04): False
+*/
+
+async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let peer_addr: SocketAddr = "10.202.8.211:9600".parse()?;
 
     info!("attempting to connect to {}", peer_addr);
@@ -20,34 +38,46 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("connection established with {}", conn.stream().peer_addr()?);
 
-    conn.write_frame(fins::Frame::Request(fins::RequestFrame {
-        client_node: conn.client_node,
-        server_node: conn.server_node,
-        service_id: 0,
-        mrc: 1,
-        src: 1,
-        body: vec![
-            0x82, // memory area code
-            0x00, // memory address
-            0x0A,
-            0x00,
-            0x00,
-            0x96,
-        ],
-    })).await?;
+    let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(1000));
 
-    let response = match conn.read_frame().await? {
-        fins::Frame::Request(request) => panic!("Unexpected request"),
-        fins::Frame::Response(response) => response
-    };
+    loop {
+        let _ = interval.tick().await;
 
-    print_bytes(&response.body);
-
-    Ok(())
+        read_print(&mut conn, 1500 + 0, 5).await?;
+        read_print(&mut conn, 1500 + 100, 1).await?;
+        read_print(&mut conn, 1500 + 920, 1).await?;
+    }
 }
 
-pub fn print_bytes(bytes: &[u8]) {
-    for (index, &byte) in bytes.iter().enumerate() {
-        println!("0x{:04X}: 0x{:02X} == {:3} == {}", index, byte, byte, if byte.is_ascii_graphic() { byte as char } else { ' ' });
+pub async fn read_print(conn: &mut fins_tcp::FinsTcpStream, offset: u16, count: u16) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let mem_addr = MemoryAddress::new(MemoryAreaCode::D, offset, 0);
+    let bytes = conn.read(mem_addr, count).await?;
+    print_bytes(mem_addr, &bytes);
+    Ok(bytes)
+}
+
+pub fn print_bytes(mem_addr: MemoryAddress, bytes: &[u8]) {
+    for index in (0..bytes.len()).step_by(2) {
+        println!(
+            "{0:>6}: 0x{1:02X} 0x{2:02X} | 0b{1:08b} 0b{2:08b} | {1:3} {2:3} | {3} {4} | {5} ",
+            format!("{:?}", MemoryAddress::new(
+                mem_addr.area_code(),
+                mem_addr.offset() + index as u16,
+                0
+            )),
+            bytes[index],
+            bytes[index + 1],
+            if bytes[index].is_ascii_graphic() {
+                bytes[index] as char
+            } else {
+                ' '
+            },
+            if bytes[index + 1].is_ascii_graphic() {
+                bytes[index + 1] as char
+            } else {
+                ' '
+            },
+            u16::from_be_bytes([ bytes[index], bytes[index + 1] ])
+        );
     }
 }

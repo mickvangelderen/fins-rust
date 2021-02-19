@@ -10,7 +10,22 @@ pub struct RawMachineAddress {
 
 unsafe_impl_raw!(RawMachineAddress);
 
-#[derive(Debug)]
+impl RawMachineAddress {
+    pub const fn deserialize(self) -> MachineAddress {
+        let Self {
+            network,
+            node,
+            unit,
+        } = self;
+        MachineAddress {
+            network,
+            node,
+            unit,
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
 pub struct MachineAddress {
     pub network: u8,
     pub node: u8,
@@ -18,13 +33,16 @@ pub struct MachineAddress {
 }
 
 impl MachineAddress {
-    pub const fn to_raw(&self) -> RawMachineAddress {
-        let &Self { network, node, unit } = self;
-        RawMachineAddress { network, node, unit }
-    }
-
-    pub const fn from_raw(raw: RawMachineAddress) -> Self {
-        let RawMachineAddress { network, node, unit } = raw;
-        Self { network, node, unit }
+    pub const fn serialize(&self) -> RawMachineAddress {
+        let &Self {
+            network,
+            node,
+            unit,
+        } = self;
+        RawMachineAddress {
+            network,
+            node,
+            unit,
+        }
     }
 }

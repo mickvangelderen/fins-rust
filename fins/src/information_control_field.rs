@@ -43,7 +43,9 @@ pub struct RawInformationControlField(u8);
 impl RawInformationControlField {
     pub const fn deserialize(self) -> Result<InformationControlField> {
         let bits = self.0;
-        if bits & 0b10111110 != 0b10000000 { return Err(Error::InvalidInformationControlField(self)) }
+        if bits & 0b10111110 != 0b10000000 {
+            return Err(Error::InvalidInformationControlField(self));
+        }
         let requires_response = !test_bits_u8(bits, 1 << 0);
         let is_command = !test_bits_u8(bits, 1 << 6);
         Ok(match (is_command, requires_response) {
@@ -62,8 +64,8 @@ mod tests {
     macro_rules! test_bidir {
         ($unraw:expr, $raw:expr $(,)?) => {
             assert_eq!($unraw.serialize(), $raw);
-            assert_eq!(Ok($unraw), $raw.deserialize());
-        }
+            assert_eq!($unraw, $raw.deserialize().unwrap());
+        };
     }
 
     #[test]
