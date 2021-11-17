@@ -59,6 +59,8 @@ impl_ints!(u32be, u32le, u32, [u8; 4], to_u32, from_u32);
 impl_ints!(i32be, i32le, i32, [u8; 4], to_i32, from_i32);
 impl_ints!(u64be, u64le, u64, [u8; 8], to_u64, from_u64);
 impl_ints!(i64be, i64le, i64, [u8; 8], to_i64, from_i64);
+impl_ints!(u128be, u128le, u128, [u8; 16], to_u128, from_u128);
+impl_ints!(i128be, i128le, i128, [u8; 16], to_i128, from_i128);
 
 #[cfg(test)]
 mod tests {
@@ -97,6 +99,8 @@ mod tests {
         assert_eq!(4, align_of::<u32le>());
         assert_eq!(8, align_of::<u64be>());
         assert_eq!(8, align_of::<u64le>());
+        assert_eq!(16, align_of::<u128be>());
+        assert_eq!(16, align_of::<u128le>());
     }
 
     #[repr(C, packed)]

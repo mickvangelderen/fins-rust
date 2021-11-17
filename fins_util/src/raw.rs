@@ -19,14 +19,23 @@ macro_rules! read_raw {
 macro_rules! unsafe_impl_raw {
     ($T:ty) => {
         impl $T {
-            #[inline(always)]
+            #[inline]
             pub fn bytes(&self) -> &[u8; ::std::mem::size_of::<Self>()] {
                 unsafe { &*(self as *const Self as *const _) }
             }
 
-            #[inline(always)]
+            #[inline]
             pub fn bytes_mut(&mut self) -> &mut [u8; ::std::mem::size_of::<Self>()] {
                 unsafe { &mut *(self as *mut Self as *mut _) }
+            }
+
+            #[inline]
+            pub fn ref_from_bytes_mut(bytes: &mut [u8]) -> ::std::result::Result<(&mut Self, &mut [u8]), ()> {
+                if ::std::mem::size_of::<Self>() <= bytes.len() {
+                    let (a, b) = bytes.split_at_mut(::std::mem::size_of::<Self>());
+                    return Ok((unsafe { &mut *(a.as_mut_ptr() as *mut Self) }, b))
+                }
+                Err(())
             }
         }
     };

@@ -29,6 +29,21 @@ LightGroup2.Status.LED_100_06 (D2420.03): False
 LightGroup2.Status.LED_100_07 (D2420.04): False
 */
 
+pub enum Request {
+    MemoryAreaRead { address: MemoryAddress, word_count: u16 },
+    MemoryAreaWrite { address: MemoryAddress, bytes: Vec<u8> },
+}
+
+pub enum Response {
+    MemoryAreaRead { bytes: Vec<u8> },
+    MemoryAreaWrite {},
+}
+
+pub enum Message {
+    Request(Request),
+    Response(Response),
+}
+
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let peer_addr: SocketAddr = "10.202.8.211:9600".parse()?;
 
