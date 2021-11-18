@@ -89,18 +89,29 @@ mod tests {
     fn types_are_aligned_to_their_native_counterparts() {
         assert_eq!(2, align_of::<i16be>());
         assert_eq!(2, align_of::<i16le>());
+
         assert_eq!(4, align_of::<i32be>());
         assert_eq!(4, align_of::<i32le>());
+
         assert_eq!(8, align_of::<i64be>());
         assert_eq!(8, align_of::<i64le>());
+
+        assert_eq!(8, align_of::<i128>());
+        assert_eq!(align_of::<i128>(), align_of::<i128be>());
+        assert_eq!(align_of::<i128>(), align_of::<i128le>());
+
         assert_eq!(2, align_of::<u16be>());
         assert_eq!(2, align_of::<u16le>());
+
         assert_eq!(4, align_of::<u32be>());
         assert_eq!(4, align_of::<u32le>());
+
         assert_eq!(8, align_of::<u64be>());
         assert_eq!(8, align_of::<u64le>());
-        assert_eq!(16, align_of::<u128be>());
-        assert_eq!(16, align_of::<u128le>());
+
+        assert_eq!(8, align_of::<u128>());
+        assert_eq!(align_of::<u128>(), align_of::<u128be>());
+        assert_eq!(align_of::<u128>(), align_of::<u128le>());
     }
 
     #[repr(C, packed)]
