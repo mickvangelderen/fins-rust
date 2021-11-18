@@ -25,13 +25,7 @@ impl InformationControlField {
     }
 
     pub const fn serialize(&self) -> RawInformationControlField {
-        let mut bits = 0b10000000;
-        if !self.requires_response() {
-            bits |= 1 << 0;
-        }
-        if !self.is_request() {
-            bits |= 1 << 6;
-        }
+        let bits = 0b10000000 | (!self.is_request() as u8) << 6 | !self.requires_response() as u8;
         RawInformationControlField(bits)
     }
 }
@@ -46,9 +40,9 @@ impl RawInformationControlField {
         if bits & 0b10111110 != 0b10000000 {
             return Err(Error::InvalidInformationControlField(self));
         }
+        let is_request = !test_bits_u8(bits, 1 << 6);
         let requires_response = !test_bits_u8(bits, 1 << 0);
-        let is_command = !test_bits_u8(bits, 1 << 6);
-        Ok(match (is_command, requires_response) {
+        Ok(match (is_request, requires_response) {
             (true, true) => InformationControlField::RequestWithResponse,
             (true, false) => InformationControlField::RequestWithoutResponse,
             (false, true) => InformationControlField::ResponseWithResponse,
