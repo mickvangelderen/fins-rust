@@ -10,8 +10,16 @@ pub struct RawMemoryAddress {
 
 impl RawMemoryAddress {
     pub const fn deserialize(self) -> Result<MemoryAddress> {
-        let RawMemoryAddress { area_code, offset, bits } = self;
-        Ok(MemoryAddress {area_code: trye!(area_code.deserialize()), offset: offset.to_u16(), bits })
+        let RawMemoryAddress {
+            area_code,
+            offset,
+            bits,
+        } = self;
+        Ok(MemoryAddress {
+            area_code: trye!(area_code.deserialize()),
+            offset: offset.to_u16(),
+            bits,
+        })
     }
 }
 
@@ -49,8 +57,17 @@ mod tests {
     #[test]
     fn serialize_works() {
         assert_eq!(
-            MemoryAddress { area_code: MemoryAreaCode::D, offset: 100, bits: 0 }.serialize(),
-            RawMemoryAddress { area_code: RawMemoryAreaCode::D, offset: u16be::from_u16(100), bits: 0 }
+            MemoryAddress {
+                area_code: MemoryAreaCode::D,
+                offset: 100,
+                bits: 0
+            }
+            .serialize(),
+            RawMemoryAddress {
+                area_code: RawMemoryAreaCode::D,
+                offset: u16be::from_u16(100),
+                bits: 0
+            }
         );
     }
 

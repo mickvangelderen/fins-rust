@@ -79,16 +79,11 @@ version = "0.1.0"
 dependencies = [
  "fins",
  "fins_util",
- "tokio",
- "tracing",
 ]
 
 [[package]]
 name = "fins_util"
 version = "0.1.0"
-dependencies = [
- "tokio",
-]
 
 [[package]]
 name = "hermit-abi"
