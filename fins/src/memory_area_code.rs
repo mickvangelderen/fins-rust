@@ -9,10 +9,10 @@ unsafe_impl_raw!(RawMemoryAreaCode);
 impl RawMemoryAreaCode {
     pub const D: Self = Self(0x82);
 
-    pub const fn deserialize(self) -> Result<MemoryAreaCode> {
+    pub const fn deserialize(self) -> Result<MemoryAreaCode, ProtocolViolation> {
         match self {
             RawMemoryAreaCode::D => Ok(MemoryAreaCode::D),
-            unknown => Err(Error::InvalidMemoryAddressCode(unknown)),
+            unknown => Err(ProtocolViolation::InvalidMemoryAreaCode(unknown)),
         }
     }
 }

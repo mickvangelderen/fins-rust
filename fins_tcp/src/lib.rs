@@ -5,128 +5,105 @@ mod header;
 mod protocol_violation;
 mod server_address_frame;
 
+use std::io::{Read, Write};
+
 pub use client_address_frame::*;
 pub use command_code::*;
 pub use error::*;
+use fins::{MachineAddress, MemoryAreaReadRequest};
+use fins_util::{ReadExt, WriteExt};
 pub use header::*;
 pub use protocol_violation::*;
 pub use server_address_frame::*;
 
-pub struct State {
-    pub client_node: u8,
-    pub server_node: u8,
+pub fn write_memory_area_read_request<W: Write>(
+    writer: &mut W,
+    request: &MemoryAreaReadRequest,
+) -> crate::Result<()> {
+    Header {
+        command: CommandCode::Fins,
+        length: 4 + MemoryAreaReadRequest::byte_size() as u32,
+        error_code: 0,
+    }
+    .write_to(writer)?;
+
+    request.write_to(writer)?;
+
+    Ok(())
 }
-// impl State {
-//     pub fn read_frame(&mut self, address: fins::MemoryAddress, count: u16) -> Result<Vec<u8>> {
-//         {
-//             #[derive(Default)]
-//             #[repr(C, packed)]
-//             struct RawRequest {
-//                 fins_tcp_header: RawHeader,
-//                 fins_header: fins::RawHeader,
-//                 fins_request: fins::RawRequestHeader,
-//                 address: fins::RawMemoryAddress,
-//                 count: u16be,
-//             }
-//             unsafe_impl_raw!(RawRequest);
 
-//             let request = RawRequest {
-//                 fins_tcp_header: Header {
-//                     command: CommandCode::Fins,
-//                     length: std::mem::size_of::<RawRequest>() as u32 - 8,
-//                     error_code: 0,
-//                 }
-//                 .to_raw(),
-//                 fins_header: fins::Header {
-//                     icf: fins::InformationControlField::RequestWithResponse,
-//                     gct: 0x02,
-//                     destination: fins::MachineAddress {
-//                         network: 0,
-//                         node: self.server_node,
-//                         unit: 0,
-//                     },
-//                     source: fins::MachineAddress {
-//                         network: 0,
-//                         node: self.client_node,
-//                         unit: 0,
-//                     },
-//                     sid: 0,
-//                 }
-//                 .serialize(),
-//                 fins_request: fins::RawRequestHeader {
-//                     mrc: 0x01,
-//                     src: 0x01,
-//                 },
-//                 address: address.serialize(),
-//                 count: u16be::from_u16(count),
-//             };
+pub struct MemoryAreaReadResponse {
+    pub src_addr: MachineAddress,
+    pub dst_addr: MachineAddress,
+    pub bytes: Vec<u8>,
+}
 
-//             write_raw!(&mut self.stream, request);
-//             self.stream.flush().await?;
-//         }
+pub fn read_memory_area_read_response<R: Read>(
+    reader: &mut R,
+) -> crate::Result<MemoryAreaReadResponse> {
+    let Header {
+        length,
+        command,
+        error_code,
+    } = Header::read_from(reader)?;
 
-//         {
-//             let Header {
-//                 length,
-//                 command,
-//                 error_code,
-//             } = Header::from_raw(read_raw!(&mut self.stream, RawHeader))?;
+    assert_command(command, CommandCode::Fins)?;
+    assert_no_error(error_code)?;
 
-//             assert_eq!(command, CommandCode::Fins);
-//             assert_eq!(0, error_code);
+    let fins::Header {
+        icf,
+        gct: _,
+        destination,
+        source,
+        sid,
+    } = reader.read_raw::<fins::RawHeader>()?.deserialize()?;
 
-//             let fins::Header {
-//                 icf,
-//                 gct: _,
-//                 destination,
-//                 source,
-//                 sid,
-//             } = read_raw!(&mut self.stream, fins::RawHeader).deserialize()?;
+    assert_eq!(icf, fins::InformationControlField::ResponseWithResponse);
+    // assert_eq!(
+    //     destination,
+    //     fins::MachineAddress {
+    //         network: 0,
+    //         node: self.client_node,
+    //         unit: 0
+    //     }
+    // );
+    // assert_eq!(
+    //     source,
+    //     fins::MachineAddress {
+    //         network: 0,
+    //         node: self.server_node,
+    //         unit: 0
+    //     }
+    // );
+    assert_eq!(sid, 0); // whatever?
 
-//             assert_eq!(icf, InformationControlField::ResponseWithResponse);
-//             assert_eq!(
-//                 destination,
-//                 fins::MachineAddress {
-//                     network: 0,
-//                     node: self.client_node,
-//                     unit: 0
-//                 }
-//             );
-//             assert_eq!(
-//                 source,
-//                 fins::MachineAddress {
-//                     network: 0,
-//                     node: self.server_node,
-//                     unit: 0
-//                 }
-//             );
-//             assert_eq!(sid, 0); // whatever?
+    let fins::RawResponseHeader {
+        mrc,
+        src,
+        mres,
+        sres,
+    } = reader.read_raw::<fins::RawResponseHeader>()?;
 
-//             let fins::RawResponseHeader {
-//                 mrc,
-//                 src,
-//                 mres,
-//                 sres,
-//             } = read_raw!(&mut self.stream, fins::RawResponseHeader);
+    assert_eq!(mrc, 1);
+    assert_eq!(src, 1);
+    assert_eq!(mres, 0);
+    assert_eq!(sres, 0);
 
-//             assert_eq!(mrc, 1);
-//             assert_eq!(src, 1);
-//             assert_eq!(mres, 0);
-//             assert_eq!(sres, 0);
+    let byte_count = length
+        - (std::mem::size_of::<RawHeader>() as u32 - 8)
+        - std::mem::size_of::<fins::RawHeader>() as u32
+        - std::mem::size_of::<fins::RawResponseHeader>() as u32;
 
-//             let byte_count = length
-//                 - (std::mem::size_of::<RawHeader>() as u32 - 8)
-//                 - std::mem::size_of::<fins::RawHeader>() as u32
-//                 - std::mem::size_of::<fins::RawResponseHeader>() as u32;
+    let mut bytes = Vec::with_capacity(byte_count as usize);
+    bytes.resize(byte_count as usize, 0);
+    reader.read_exact(&mut bytes[..])?;
 
-//             let mut bytes = Vec::with_capacity(byte_count as usize);
-//             bytes.resize(byte_count as usize, 0);
-//             self.stream.read_exact(&mut bytes[..]).await?;
-
-//             Ok(bytes)
-//         }
-//     }
-// }
+    Ok(MemoryAreaReadResponse {
+        src_addr: source,
+        dst_addr: destination,
+        bytes,
+    })
+}
 
 #[derive(Debug)]
 pub struct FinsRequestFrame {}

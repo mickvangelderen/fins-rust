@@ -1,9 +1,12 @@
-use fins::{MemoryAddress, MemoryAreaCode};
-use fins_tcp::{ClientAddressFrame, ServerAddressFrame};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
-use std::{fmt::write, io::ErrorKind, net::SocketAddr};
-use tracing::info;
+use fins::{MemoryAddress, MemoryAreaCode, MemoryAreaReadRequest};
+use fins_tcp::{
+    read_memory_area_read_response, write_memory_area_read_request, ClientAddressFrame, FinsFrame,
+    MemoryAreaReadResponse, ServerAddressFrame,
+};
 use std::io::Cursor;
+use std::{fmt::write, io::ErrorKind, net::SocketAddr};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
+use tracing::info;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -14,7 +17,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     tokio::select! {
-        _ = run() => {}
+        result = run() => {
+            result?
+        }
         _ = tokio::signal::ctrl_c() => {}
     }
 
@@ -67,23 +72,65 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let (mut reader, mut writer) = stream.into_split();
 
     let mut write_buffer = Vec::with_capacity(2048);
-    
+
+    // Exchange nodes
     let mut write_cursor = Cursor::new(&mut write_buffer);
     ClientAddressFrame { client_node: 0 }.write_to(&mut write_cursor)?;
     let written = write_cursor.position();
     drop(write_cursor);
-
     writer.write_all(&write_buffer[..written as usize]).await?;
+    writer.flush().await?;
 
     let mut read_buffer = vec![0; 2048];
     let mut read_position: usize = 0;
 
-    let ServerAddressFrame { client_node, server_node } = read_server_address_frame(&mut reader, &mut read_buffer, &mut read_position).await?;
+    let ServerAddressFrame {
+        client_node,
+        server_node,
+    } = read_server_address_frame_async(&mut reader, &mut read_buffer, &mut read_position).await?;
+
+    info!("client node {}, server node {}", client_node, server_node);
+
+    // Memory area read
+    let memory_area_read_request = MemoryAreaReadRequest {
+        client_node,
+        server_node,
+        address: MemoryAddress {
+            area_code: MemoryAreaCode::D,
+            offset: 1500,
+            bits: 0,
+        },
+        count: 16,
+    };
+
+    let mut write_cursor = Cursor::new(&mut write_buffer);
+    write_memory_area_read_request(&mut write_cursor, &memory_area_read_request).unwrap();
+    let written = write_cursor.position();
+    drop(write_cursor);
+    writer.write_all(&write_buffer[..written as usize]).await?;
+    writer.flush().await?;
+
+    read_position = 0;
+    let MemoryAreaReadResponse {
+        src_addr,
+        dst_addr,
+        bytes,
+    } = read_memory_area_read_response_async(&mut reader, &mut read_buffer, &mut read_position)
+        .await?;
+
+    assert_eq!(src_addr.node, client_node);
+    assert_eq!(dst_addr.node, server_node);
+
+    print_bytes(memory_area_read_request.address, &bytes);
 
     Ok(())
 }
 
-pub async fn read_server_address_frame<R: AsyncRead + Unpin>(reader: &mut R, read_buffer: &mut [u8], read_position: &mut usize) -> Result<ServerAddressFrame, Box<dyn std::error::Error>> {
+pub async fn read_server_address_frame_async<R: AsyncRead + Unpin>(
+    reader: &mut R,
+    read_buffer: &mut [u8],
+    read_position: &mut usize,
+) -> Result<ServerAddressFrame, Box<dyn std::error::Error>> {
     loop {
         if *read_position == read_buffer.len() {
             panic!("Frame does not fit in read buffer!");
@@ -94,11 +141,41 @@ pub async fn read_server_address_frame<R: AsyncRead + Unpin>(reader: &mut R, rea
             }
             Ok(n) => {
                 *read_position += n;
+                print_bytes(MemoryAddress {area_code: MemoryAreaCode::D, offset: 0, bits: 0}, &read_buffer[..*read_position]);
+
                 let mut cursor = Cursor::new(&read_buffer[0..*read_position]);
                 match ServerAddressFrame::read_from(&mut cursor) {
-                    Ok(frame) => {
-                        return Ok(frame)
+                    Ok(frame) => return Ok(frame),
+                    Err(fins_tcp::Error::Io(err)) if err.kind() == ErrorKind::UnexpectedEof => {
+                        // Continue reading.
                     }
+                    Err(err) => return Err(err.into()),
+                }
+            }
+            Err(err) => return Err(err.into()),
+        }
+    }
+}
+
+pub async fn read_memory_area_read_response_async<R: AsyncRead + Unpin>(
+    reader: &mut R,
+    read_buffer: &mut [u8],
+    read_position: &mut usize,
+) -> Result<MemoryAreaReadResponse, Box<dyn std::error::Error>> {
+    loop {
+        if *read_position == read_buffer.len() {
+            panic!("Frame does not fit in read buffer!");
+        }
+        match reader.read(&mut read_buffer[*read_position..]).await {
+            Ok(0) => {
+                return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof).into());
+            }
+            Ok(n) => {
+                *read_position += n;
+                print_bytes(MemoryAddress {area_code: MemoryAreaCode::D, offset: 0, bits: 0}, &read_buffer[..*read_position]);
+                let mut cursor = Cursor::new(&read_buffer[0..*read_position]);
+                match read_memory_area_read_response(&mut cursor) {
+                    Ok(frame) => return Ok(frame),
                     Err(fins_tcp::Error::Io(err)) if err.kind() == ErrorKind::UnexpectedEof => {
                         // Continue reading.
                     }
@@ -125,31 +202,31 @@ pub async fn read_server_address_frame<R: AsyncRead + Unpin>(reader: &mut R, rea
 //     Ok(bytes)
 // }
 
-// pub fn print_bytes(mem_addr: MemoryAddress, bytes: &[u8]) {
-//     for index in (0..bytes.len()).step_by(2) {
-//         println!(
-//             "{0:>6}: 0x{1:02X} 0x{2:02X} | 0b{1:08b} 0b{2:08b} | {1:3} {2:3} | {3} {4} | {5} ",
-//             format!(
-//                 "{:?}",
-//                 MemoryAddress {
-//                     area_code: mem_addr.area_code,
-//                     offset: mem_addr.offset + index as u16,
-//                     bits: 0
-//                 }
-//             ),
-//             bytes[index],
-//             bytes[index + 1],
-//             if bytes[index].is_ascii_graphic() {
-//                 bytes[index] as char
-//             } else {
-//                 ' '
-//             },
-//             if bytes[index + 1].is_ascii_graphic() {
-//                 bytes[index + 1] as char
-//             } else {
-//                 ' '
-//             },
-//             u16::from_be_bytes([bytes[index], bytes[index + 1]])
-//         );
-//     }
-// }
+pub fn print_bytes(mem_addr: MemoryAddress, bytes: &[u8]) {
+    for index in (0..bytes.len()).step_by(2) {
+        println!(
+            "{0:>6}: 0x{1:02X} 0x{2:02X} | 0b{1:08b} 0b{2:08b} | {1:3} {2:3} | {3} {4} | {5} ",
+            format!(
+                "{:?}",
+                MemoryAddress {
+                    area_code: mem_addr.area_code,
+                    offset: mem_addr.offset + index as u16,
+                    bits: 0
+                }
+            ),
+            bytes[index],
+            bytes[index + 1],
+            if bytes[index].is_ascii_graphic() {
+                bytes[index] as char
+            } else {
+                ' '
+            },
+            if bytes[index + 1].is_ascii_graphic() {
+                bytes[index + 1] as char
+            } else {
+                ' '
+            },
+            u16::from_be_bytes([bytes[index], bytes[index + 1]])
+        );
+    }
+}

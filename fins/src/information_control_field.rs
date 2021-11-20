@@ -35,10 +35,10 @@ impl InformationControlField {
 pub struct RawInformationControlField(u8);
 
 impl RawInformationControlField {
-    pub const fn deserialize(self) -> Result<InformationControlField> {
+    pub const fn deserialize(self) -> Result<InformationControlField, ProtocolViolation> {
         let bits = self.0;
         if bits & 0b10111110 != 0b10000000 {
-            return Err(Error::InvalidInformationControlField(self));
+            return Err(ProtocolViolation::InvalidInformationControlField(self));
         }
         let is_request = !test_bits_u8(bits, 1 << 6);
         let requires_response = !test_bits_u8(bits, 1 << 0);

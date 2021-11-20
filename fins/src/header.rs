@@ -26,9 +26,9 @@ pub struct RawHeader {
 unsafe_impl_raw!(RawHeader);
 
 impl RawHeader {
-    pub const fn deserialize(self) -> Result<Header> {
+    pub const fn deserialize(self) -> Result<Header, ProtocolViolation> {
         Ok(Header {
-            icf: trye!(self.icf.deserialize()),
+            icf: try_const!(self.icf.deserialize()),
             gct: self.gct,
             destination: self.destination.deserialize(),
             source: self.source.deserialize(),

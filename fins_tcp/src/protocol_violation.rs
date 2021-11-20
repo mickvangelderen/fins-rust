@@ -14,11 +14,11 @@ pub enum ProtocolViolation {
         actual: CommandCode,
         expected: CommandCode,
     },
-    Fins(fins::Error),
+    Fins(fins::ProtocolViolation),
 }
 
-impl From<fins::Error> for ProtocolViolation {
-    fn from(error: fins::Error) -> Self {
+impl From<fins::ProtocolViolation> for ProtocolViolation {
+    fn from(error: fins::ProtocolViolation) -> Self {
         Self::Fins(error)
     }
 }

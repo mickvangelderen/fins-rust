@@ -1,7 +1,7 @@
 use crate::*;
 
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq)]
-#[repr(C, packed)]
+#[repr(C, packed, align(1))]
 pub struct RawMemoryAddress {
     area_code: RawMemoryAreaCode,
     offset: u16be,
@@ -9,14 +9,14 @@ pub struct RawMemoryAddress {
 }
 
 impl RawMemoryAddress {
-    pub const fn deserialize(self) -> Result<MemoryAddress> {
+    pub const fn deserialize(self) -> Result<MemoryAddress, ProtocolViolation> {
         let RawMemoryAddress {
             area_code,
             offset,
             bits,
         } = self;
         Ok(MemoryAddress {
-            area_code: trye!(area_code.deserialize()),
+            area_code: try_const!(area_code.deserialize()),
             offset: offset.to_u16(),
             bits,
         })

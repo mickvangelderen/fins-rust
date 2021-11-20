@@ -1,6 +1,9 @@
-use std::{convert::TryInto, io::{Read, Write}};
+use std::{
+    convert::TryInto,
+    io::{Read, Write},
+};
 
-use fins_util::{ReadExt, WriteExt, u32be, unsafe_impl_raw};
+use fins_util::{u32be, unsafe_impl_raw, ReadExt, WriteExt};
 
 use crate::{assert_command, assert_header_length, assert_no_error, CommandCode, Header};
 
@@ -34,14 +37,15 @@ impl ServerAddressFrame {
             length: SERVER_ADDRESS_LENGTH,
             command: CommandCode::ServerAddress,
             error_code: 0,
-        }.write_to(writer)?;
+        }
+        .write_to(writer)?;
         writer.write_raw(&RawServerAddressBody {
             client_node: u32be::from_u32(self.client_node as u32),
             server_node: u32be::from_u32(self.server_node as u32),
         })?;
         Ok(())
     }
-    
+
     fn from_raw_body(body: RawServerAddressBody) -> Self {
         Self {
             client_node: body.client_node.to_u32().try_into().unwrap(),

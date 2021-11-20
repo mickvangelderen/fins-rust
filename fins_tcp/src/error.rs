@@ -13,9 +13,26 @@ impl From<ProtocolViolation> for Error {
     }
 }
 
+impl From<fins::ProtocolViolation> for Error {
+    fn from(error: fins::ProtocolViolation) -> Self {
+        Self::ProtocolViolation(ProtocolViolation::from(error))
+    }
+}
+
 impl From<std::io::Error> for Error {
     fn from(error: std::io::Error) -> Self {
         Self::Io(error)
+    }
+}
+
+impl From<fins::Error> for Error {
+    fn from(error: fins::Error) -> Self {
+        match error {
+            fins::Error::ProtocolViolation(e) => {
+                Self::ProtocolViolation(ProtocolViolation::from(e))
+            }
+            fins::Error::Io(e) => Self::Io(e),
+        }
     }
 }
 
