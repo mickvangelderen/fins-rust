@@ -30,6 +30,22 @@ pub struct RawRequestHeader {
     pub src: u8,
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum RequestHeader {
+    MemoryAreaRead
+}
+
+impl RequestHeader {
+    pub fn to_raw(self) -> RawRequestHeader {
+        match self {
+            Self::MemoryAreaRead => RawRequestHeader {
+                mrc: 0x01,
+                src: 0x01,
+            }
+        }
+    }
+}
+
 unsafe_impl_raw!(RawRequestHeader);
 
 #[derive(Debug, Default)]
@@ -44,7 +60,7 @@ pub struct RawResponseHeader {
     /// Main Response Code
     pub mres: u8,
 
-    /// Sub Repsonse Code
+    /// Sub Response Code
     pub sres: u8,
 }
 

@@ -9,6 +9,7 @@ pub struct MemoryAreaReadRequest {
     pub count: u16,
 }
 
+
 impl MemoryAreaReadRequest {
     pub fn write_to<W: Write>(&self, writer: &mut W) -> crate::Result<()> {
         writer.write_raw(&RawMemoryAreaReadRequest {
@@ -28,10 +29,7 @@ impl MemoryAreaReadRequest {
                 sid: 0,
             }
             .serialize(),
-            request_header: RawRequestHeader {
-                mrc: 0x01,
-                src: 0x01,
-            },
+            request_header: RequestHeader::MemoryAreaRead.to_raw(),
             request_body: RawMemoryAreaReadRequestBody {
                 address: self.address.serialize(),
                 count: u16be::from_u16(self.count),

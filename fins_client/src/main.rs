@@ -1,6 +1,6 @@
 use fins::{MemoryAddress, MemoryAreaCode, MemoryAreaReadRequest};
 use fins_tcp::{
-    read_memory_area_read_response, write_memory_area_read_request, ClientAddressFrame, FinsFrame,
+    read_memory_area_read_response, write_memory_area_read_request, ClientAddressFrame,
     MemoryAreaReadResponse, ServerAddressFrame,
 };
 use std::io::Cursor;
@@ -40,27 +40,6 @@ LightGroup2.Status.LED_100_02 (D2420.02): False
 LightGroup2.Status.LED_100_06 (D2420.03): False
 LightGroup2.Status.LED_100_07 (D2420.04): False
 */
-
-pub enum Request {
-    MemoryAreaRead {
-        address: MemoryAddress,
-        word_count: u16,
-    },
-    MemoryAreaWrite {
-        address: MemoryAddress,
-        bytes: Vec<u8>,
-    },
-}
-
-pub enum Response {
-    MemoryAreaRead { bytes: Vec<u8> },
-    MemoryAreaWrite {},
-}
-
-pub enum Message {
-    Request(Request),
-    Response(Response),
-}
 
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let peer_addr: SocketAddr = "10.202.8.211:9600".parse()?;
@@ -103,26 +82,32 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         count: 16,
     };
 
-    let mut write_cursor = Cursor::new(&mut write_buffer);
-    write_memory_area_read_request(&mut write_cursor, &memory_area_read_request).unwrap();
-    let written = write_cursor.position();
-    drop(write_cursor);
-    writer.write_all(&write_buffer[..written as usize]).await?;
-    writer.flush().await?;
+    let pipeline_count = 32;
 
-    read_position = 0;
-    let MemoryAreaReadResponse {
-        src_addr,
-        dst_addr,
-        bytes,
-    } = read_memory_area_read_response_async(&mut reader, &mut read_buffer, &mut read_position)
-        .await?;
+    // Send a bunch of requests without reading replies
+    for _ in 0..pipeline_count {
+        let mut write_cursor = Cursor::new(&mut write_buffer);
+        write_memory_area_read_request(&mut write_cursor, &memory_area_read_request).unwrap();
+        let written = write_cursor.position();
+        drop(write_cursor);
+        writer.write_all(&write_buffer[..written as usize]).await?;
+        writer.flush().await?;
+    }
 
-    assert_eq!(src_addr.node, client_node);
-    assert_eq!(dst_addr.node, server_node);
-
-    print_bytes(memory_area_read_request.address, &bytes);
-
+    for _ in 0..pipeline_count {
+        let MemoryAreaReadResponse {
+            src_addr,
+            dst_addr,
+            bytes,
+        } = read_memory_area_read_response_async(&mut reader, &mut read_buffer, &mut read_position)
+            .await?;
+    
+        assert_eq!(src_addr.node, server_node);
+        assert_eq!(dst_addr.node, client_node);
+    
+        print_bytes(memory_area_read_request.address, &bytes);
+    }
+    
     Ok(())
 }
 
@@ -141,11 +126,15 @@ pub async fn read_server_address_frame_async<R: AsyncRead + Unpin>(
             }
             Ok(n) => {
                 *read_position += n;
-                print_bytes(MemoryAddress {area_code: MemoryAreaCode::D, offset: 0, bits: 0}, &read_buffer[..*read_position]);
-
                 let mut cursor = Cursor::new(&read_buffer[0..*read_position]);
                 match ServerAddressFrame::read_from(&mut cursor) {
-                    Ok(frame) => return Ok(frame),
+                    Ok(frame) => {
+                        let consumed_position = cursor.position() as usize;
+                        drop(cursor);
+                        read_buffer.copy_within(consumed_position..*read_position, 0);
+                        *read_position = 0;
+                        return Ok(frame);
+                    }
                     Err(fins_tcp::Error::Io(err)) if err.kind() == ErrorKind::UnexpectedEof => {
                         // Continue reading.
                     }
@@ -172,10 +161,15 @@ pub async fn read_memory_area_read_response_async<R: AsyncRead + Unpin>(
             }
             Ok(n) => {
                 *read_position += n;
-                print_bytes(MemoryAddress {area_code: MemoryAreaCode::D, offset: 0, bits: 0}, &read_buffer[..*read_position]);
                 let mut cursor = Cursor::new(&read_buffer[0..*read_position]);
                 match read_memory_area_read_response(&mut cursor) {
-                    Ok(frame) => return Ok(frame),
+                    Ok(frame) => {
+                        let consumed_position = cursor.position() as usize;
+                        drop(cursor);
+                        read_buffer.copy_within(consumed_position..*read_position, 0);
+                        *read_position = 0;
+                        return Ok(frame)
+                    },
                     Err(fins_tcp::Error::Io(err)) if err.kind() == ErrorKind::UnexpectedEof => {
                         // Continue reading.
                     }

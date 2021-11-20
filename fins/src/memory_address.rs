@@ -1,7 +1,7 @@
 use crate::*;
 
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq)]
-#[repr(C, packed, align(1))]
+#[repr(C, packed)]
 pub struct RawMemoryAddress {
     area_code: RawMemoryAreaCode,
     offset: u16be,

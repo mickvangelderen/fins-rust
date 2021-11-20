@@ -22,7 +22,7 @@ pub fn write_memory_area_read_request<W: Write>(
 ) -> crate::Result<()> {
     Header {
         command: CommandCode::Fins,
-        length: 4 + MemoryAreaReadRequest::byte_size() as u32,
+        length: 8 + MemoryAreaReadRequest::byte_size() as u32,
         error_code: 0,
     }
     .write_to(writer)?;
@@ -105,87 +105,46 @@ pub fn read_memory_area_read_response<R: Read>(
     })
 }
 
-#[derive(Debug)]
-pub struct FinsRequestFrame {}
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
 
-#[derive(Debug)]
-pub enum FinsResponseFrame {
-    Read(Vec<u8>),
+    use fins::{MemoryAddress, MemoryAreaCode};
+
+    use super::*;
+    
+    #[test]
+    fn works() {
+        let mut buffer = vec![];
+        let mut cursor = Cursor::new(&mut buffer);
+        write_memory_area_read_request(&mut cursor, &MemoryAreaReadRequest {
+            server_node: 0xD3,
+            client_node: 0xFB,
+            address: MemoryAddress {
+                area_code: MemoryAreaCode::D,
+                offset: 1500,
+                bits: 0,
+            },
+            count: 16,
+        }).unwrap();
+
+        assert_eq!(
+            &buffer[..],
+            &[
+                0x46, 0x49, 0x4E, 0x53, // FINS
+                0x00, 0x00, 0x00, 0x1A, // length: 26
+                0x00, 0x00, 0x00, 0x02, // command: fins
+                0x00, 0x00, 0x00, 0x00, // error: none
+                0x80, // ICF: use gateway, command with response
+                0x00, // RSV
+                0x02, // GCT: gateway count 2
+                0x00, 0xD3, 0x00, // src addr
+                0x00, 0xFB, 0x00, // dst addr
+                0x00, // SID
+                0x01, 0x01, // request code: memory area read
+                0x82, 0x05, 0xDC, 0x00, // memory address: location D, offset 1500, bit 0
+                0x00, 0x10, // word count: 16
+            ]
+        )
+    }
 }
-
-#[derive(Debug)]
-pub enum FinsFrame {
-    Request(FinsRequestFrame),
-    Response(FinsResponseFrame),
-}
-
-// impl FinsFrame {
-//     pub async fn read_from<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Self> {
-//         // let fins::Header {
-//         //     icf,
-//         //     gct,
-//         //     destination,
-//         //     source,
-//         //     sid,
-//         // } = read_raw!(reader, fins::RawHeader).deserialize()?;
-
-//         unimplemented!()
-
-//         // if icf.is_request() {
-//         //     let fins::RawRequestHeader { mrc, src } = read_raw!(reader, fins::RawRequestHeader);
-//         //     unimplemented!()
-//         // } else {
-//         //     let fins::RawResponseHeader { mrc, src, mres, sres } = read_raw!(reader, fins::RawResponseHeader);
-//         //     assert_eq!(mrc, 1);
-//         //     assert_eq!(src, 1);
-//         //     assert_eq!(mres, 0);
-//         //     assert_eq!(sres, 0);
-//         //     Ok(FinsFrame::Response(
-//         //         FinsResponseFrame::Read()
-//         //     ))
-//         // }
-//     }
-// }
-
-// #[derive(Debug)]
-// pub enum FinsTcpFrame {
-//     ClientAddress(ClientAddressFrame),
-//     ServerAddress(ServerAddressFrame),
-//     Fins(FinsFrame),
-// }
-
-// impl FinsTcpFrame {
-//     pub async fn read_from<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Self> {
-//         let Header {
-//             length,
-//             command,
-//             error_code,
-//         } = Header::from_raw(read_raw!(reader, RawHeader))?;
-
-//         // FIXME: Figure out what is sent on error. We don't want to break the stream by not reading the entire frame!
-//         if error_code != 0 {
-//             return Err(Error::ErrorCode {
-//                 command,
-//                 error_code,
-//             });
-//         }
-
-//         Ok(match command {
-//             CommandCode::ClientAddress => {
-//                 if length != CLIENT_ADDRESS_LENGTH {
-//                     return Err(Error::Invalid);
-//                 };
-//                 let body = read_raw!(reader, RawClientAddressBody);
-//                 FinsTcpFrame::ClientAddress(ClientAddressFrame::from_raw_body(body))
-//             }
-//             CommandCode::ServerAddress => {
-//                 if length != SERVER_ADDRESS_LENGTH {
-//                     return Err(Error::Invalid);
-//                 };
-//                 let body = read_raw!(reader, RawServerAddressBody);
-//                 FinsTcpFrame::ServerAddress(ServerAddressFrame::from_raw_body(body))
-//             }
-//             CommandCode::Fins => unimplemented!(),
-//         })
-//     }
-// }
