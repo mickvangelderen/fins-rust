@@ -48,6 +48,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let stream = tokio::net::TcpStream::connect(peer_addr).await?;
     info!("connection established with {}", stream.peer_addr()?);
+    stream.set_nodelay(true)?;
+    
     let (mut reader, mut writer) = stream.into_split();
 
     let mut write_buffer = Vec::with_capacity(2048);
@@ -70,44 +72,68 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("client node {}, server node {}", client_node, server_node);
 
-    // Memory area read
-    let memory_area_read_request = MemoryAreaReadRequest {
-        client_node,
-        server_node,
-        address: MemoryAddress {
-            area_code: MemoryAreaCode::D,
-            offset: 1500,
-            bits: 0,
-        },
-        count: 16,
-    };
+    let pipeline_count = 4;
 
-    let pipeline_count = 32;
+    let requests = (0..pipeline_count)
+        .map(|i| MemoryAreaReadRequest {
+            client_node,
+            server_node,
+            address: MemoryAddress {
+                area_code: MemoryAreaCode::D,
+                offset: (i as u16) * 500,
+                bits: 0,
+            },
+            count: 500,
+            service_id: i,
+        })
+        .collect::<Vec<_>>();
 
     // Send a bunch of requests without reading replies
-    for _ in 0..pipeline_count {
+    let send_start = std::time::Instant::now();
+
+    for request in &requests {
         let mut write_cursor = Cursor::new(&mut write_buffer);
-        write_memory_area_read_request(&mut write_cursor, &memory_area_read_request).unwrap();
+        write_memory_area_read_request(&mut write_cursor, &request).unwrap();
         let written = write_cursor.position();
         drop(write_cursor);
         writer.write_all(&write_buffer[..written as usize]).await?;
         writer.flush().await?;
     }
 
-    for _ in 0..pipeline_count {
+    let send_end = std::time::Instant::now();
+
+    println!(
+        "Sent {} requests in {}ms",
+        requests.len(),
+        (send_end - send_start).as_millis()
+    );
+
+    let receive_start = std::time::Instant::now();
+
+    for request in &requests {
         let MemoryAreaReadResponse {
             src_addr,
             dst_addr,
             bytes,
+            service_id,
         } = read_memory_area_read_response_async(&mut reader, &mut read_buffer, &mut read_position)
             .await?;
-    
+
         assert_eq!(src_addr.node, server_node);
         assert_eq!(dst_addr.node, client_node);
-    
-        print_bytes(memory_area_read_request.address, &bytes);
+        assert_eq!(request.service_id, service_id);
+
+        // print_bytes(request.address, &bytes);
     }
-    
+
+    let receive_end = std::time::Instant::now();
+
+    println!(
+        "Received {} responses in {}ms",
+        requests.len(),
+        (receive_end - receive_start).as_millis()
+    );
+
     Ok(())
 }
 
@@ -168,8 +194,8 @@ pub async fn read_memory_area_read_response_async<R: AsyncRead + Unpin>(
                         drop(cursor);
                         read_buffer.copy_within(consumed_position..*read_position, 0);
                         *read_position = 0;
-                        return Ok(frame)
-                    },
+                        return Ok(frame);
+                    }
                     Err(fins_tcp::Error::Io(err)) if err.kind() == ErrorKind::UnexpectedEof => {
                         // Continue reading.
                     }

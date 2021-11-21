@@ -7,8 +7,8 @@ pub struct MemoryAreaReadRequest {
     pub client_node: u8,
     pub address: MemoryAddress,
     pub count: u16,
+    pub service_id: u8,
 }
-
 
 impl MemoryAreaReadRequest {
     pub fn write_to<W: Write>(&self, writer: &mut W) -> crate::Result<()> {
@@ -26,7 +26,7 @@ impl MemoryAreaReadRequest {
                     node: self.client_node,
                     unit: 0,
                 },
-                sid: 0,
+                sid: self.service_id,
             }
             .serialize(),
             request_header: RequestHeader::MemoryAreaRead.to_raw(),

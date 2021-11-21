@@ -11,7 +11,7 @@ pub use client_address_frame::*;
 pub use command_code::*;
 pub use error::*;
 use fins::{MachineAddress, MemoryAreaReadRequest};
-use fins_util::{ReadExt, WriteExt};
+use fins_util::ReadExt;
 pub use header::*;
 pub use protocol_violation::*;
 pub use server_address_frame::*;
@@ -36,6 +36,7 @@ pub struct MemoryAreaReadResponse {
     pub src_addr: MachineAddress,
     pub dst_addr: MachineAddress,
     pub bytes: Vec<u8>,
+    pub service_id: u8,
 }
 
 pub fn read_memory_area_read_response<R: Read>(
@@ -75,7 +76,6 @@ pub fn read_memory_area_read_response<R: Read>(
     //         unit: 0
     //     }
     // );
-    assert_eq!(sid, 0); // whatever?
 
     let fins::RawResponseHeader {
         mrc,
@@ -84,10 +84,8 @@ pub fn read_memory_area_read_response<R: Read>(
         sres,
     } = reader.read_raw::<fins::RawResponseHeader>()?;
 
-    assert_eq!(mrc, 1);
-    assert_eq!(src, 1);
-    assert_eq!(mres, 0);
-    assert_eq!(sres, 0);
+    assert_eq!([mrc, src], [0x01, 0x01]);
+    assert_eq!([mres, sres], [0x00, 0x00]);
 
     let byte_count = length
         - (std::mem::size_of::<RawHeader>() as u32 - 8)
@@ -102,6 +100,7 @@ pub fn read_memory_area_read_response<R: Read>(
         src_addr: source,
         dst_addr: destination,
         bytes,
+        service_id: sid,
     })
 }
 
@@ -112,21 +111,25 @@ mod tests {
     use fins::{MemoryAddress, MemoryAreaCode};
 
     use super::*;
-    
+
     #[test]
     fn works() {
         let mut buffer = vec![];
         let mut cursor = Cursor::new(&mut buffer);
-        write_memory_area_read_request(&mut cursor, &MemoryAreaReadRequest {
-            server_node: 0xD3,
-            client_node: 0xFB,
-            address: MemoryAddress {
-                area_code: MemoryAreaCode::D,
-                offset: 1500,
-                bits: 0,
+        write_memory_area_read_request(
+            &mut cursor,
+            &MemoryAreaReadRequest {
+                server_node: 0xD3,
+                client_node: 0xFB,
+                address: MemoryAddress {
+                    area_code: MemoryAreaCode::D,
+                    offset: 1500,
+                    bits: 0,
+                },
+                count: 16,
             },
-            count: 16,
-        }).unwrap();
+        )
+        .unwrap();
 
         assert_eq!(
             &buffer[..],

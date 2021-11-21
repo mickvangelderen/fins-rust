@@ -36,3 +36,15 @@ impl Request {
         4 + body_bytes
     }
 }
+
+
+## Test plc
+
+1 memory area read of 1 word takes 50ms
+1 memory area read of 500 words takes 200-300ms
+2 memory area reads (sent simultaneously) of 500 words takes around 380ms
+4 memory area reads (sent simultaneously) of 500 words takes around 700ms
+
+client -> server 25ms
+read and send bytes -> 3ms/16 bytes <- seems rather slow for sequential read
+server -> client 25ms

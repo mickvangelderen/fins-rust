@@ -32,7 +32,7 @@ pub struct RawRequestHeader {
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum RequestHeader {
-    MemoryAreaRead
+    MemoryAreaRead,
 }
 
 impl RequestHeader {
@@ -41,7 +41,7 @@ impl RequestHeader {
             Self::MemoryAreaRead => RawRequestHeader {
                 mrc: 0x01,
                 src: 0x01,
-            }
+            },
         }
     }
 }
