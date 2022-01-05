@@ -49,7 +49,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let stream = tokio::net::TcpStream::connect(peer_addr).await?;
     info!("connection established with {}", stream.peer_addr()?);
     stream.set_nodelay(true)?;
-    
+
     let (mut reader, mut writer) = stream.into_split();
 
     let mut write_buffer = Vec::with_capacity(2048);
