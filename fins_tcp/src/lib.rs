@@ -126,6 +126,7 @@ mod tests {
                     offset: 1500,
                     bits: 0,
                 },
+                service_id: 1,
                 count: 16,
             },
         )
@@ -143,7 +144,7 @@ mod tests {
                 0x02, // GCT: gateway count 2
                 0x00, 0xD3, 0x00, // src addr
                 0x00, 0xFB, 0x00, // dst addr
-                0x00, // SID
+                0x01, // SID
                 0x01, 0x01, // request code: memory area read
                 0x82, 0x05, 0xDC, 0x00, // memory address: location D, offset 1500, bit 0
                 0x00, 0x10, // word count: 16
